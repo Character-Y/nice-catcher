@@ -26,6 +26,8 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "memos-audio")
 AI_BUILDER_TOKEN = os.getenv("AI_BUILDER_TOKEN")
 AI_BUILDER_BASE_URL = os.getenv("AI_BUILDER_BASE_URL", "https://space.ai-builders.com")
+AI_BUILDER_FILE_FIELD = os.getenv("AI_BUILDER_FILE_FIELD", "audio_file")
+AI_BUILDER_MODEL = os.getenv("AI_BUILDER_MODEL", "whisper-1")
 
 _supabase: Optional[Client] = None
 
@@ -153,12 +155,10 @@ def call_transcription_api(filename: str, content_type: str, file_bytes: bytes) 
         "Authorization": f"Bearer {AI_BUILDER_TOKEN}",
         "x-api-key": AI_BUILDER_TOKEN,
     }
-    files = [
-        ("file", (filename, file_bytes, content_type)),
-        ("audio", (filename, file_bytes, content_type)),
-        ("audio_file", (filename, file_bytes, content_type)),
-    ]
-    data = {"model": "whisper-1"}
+    files = {
+        AI_BUILDER_FILE_FIELD: (filename, file_bytes, content_type),
+    }
+    data = {"model": AI_BUILDER_MODEL}
     try:
         response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
     except requests.RequestException as exc:
@@ -179,8 +179,9 @@ def find_memo(memos: list[dict[str, Any]], memo_id: str) -> dict[str, Any]:
 
 app = FastAPI(title="Nice Catcher API", version="0.1.0")
 
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+assets_dir = STATIC_DIR / "assets"
+if assets_dir.exists():
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 
 @app.get("/health")
@@ -243,12 +244,11 @@ async def capture(
 
 @app.patch(f"{API_PREFIX}/memos" + "/{memo_id}", response_model=Memo)
 def update_memo(memo_id: str, payload: MemoUpdate) -> Memo:
-    update = payload.model_dump(exclude_unset=True)
+    fields_set = payload.model_fields_set
+    update = {field: getattr(payload, field) for field in fields_set}
     project_name = update.pop("new_project_name", None)
-    if project_name and not update.get("project_id"):
+    if project_name and "project_id" not in update:
         update["project_id"] = create_project_if_needed(project_name)
-
-    update = {k: v for k, v in update.items() if v is not None}
 
     if USE_MOCK:
         memos = load_memos()
