@@ -4,8 +4,8 @@ import ActionBubble from "./components/ActionBubble";
 import ProjectSelector from "./components/ProjectSelector";
 import Timeline from "./components/Timeline";
 import TranscriptionEditor from "./components/TranscriptionEditor";
-import { captureAudio, listMemos, updateMemo } from "./api";
-import type { Memo } from "./api";
+import { captureAudio, listMemos, listProjects, updateMemo } from "./api";
+import type { Memo, Project } from "./api";
 
 type RecorderState = "idle" | "recording" | "saving" | "review";
 
@@ -15,7 +15,9 @@ export default function App() {
   const [transcription, setTranscription] = useState("");
   const [currentMemo, setCurrentMemo] = useState<Memo | null>(null);
   const [memos, setMemos] = useState<Memo[]>([]);
-  const [projectMode, setProjectMode] = useState<"inbox" | "new">("inbox");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectMode, setProjectMode] = useState<"inbox" | "existing" | "new">("inbox");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -31,12 +33,23 @@ export default function App() {
     }
   }, []);
 
+  const fetchProjects = useCallback(async () => {
+    try {
+      const data = await listProjects();
+      setProjects(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchMemos();
-  }, [fetchMemos]);
+    fetchProjects();
+  }, [fetchMemos, fetchProjects]);
 
   const resetProjectInputs = () => {
     setProjectMode("inbox");
+    setSelectedProjectId("");
     setNewProjectName("");
   };
 
@@ -99,11 +112,21 @@ export default function App() {
     setCurrentMemo(memo);
     setTranscription(memo.content?.toString() || "");
     setState("review");
-    resetProjectInputs();
+    if (memo.project_id) {
+      setProjectMode("existing");
+      setSelectedProjectId(memo.project_id);
+      setNewProjectName("");
+    } else {
+      resetProjectInputs();
+    }
   };
 
   const handleSave = async () => {
     if (!currentMemo) {
+      return;
+    }
+    if (projectMode === "existing" && !selectedProjectId) {
+      setError("Please choose an existing project.");
       return;
     }
     setState("saving");
@@ -112,13 +135,14 @@ export default function App() {
       const payload = {
         content: transcription,
         status: "done" as const,
-        project_id: projectMode === "inbox" ? null : undefined,
+        project_id: projectMode === "inbox" ? null : projectMode === "existing" ? selectedProjectId : undefined,
         new_project_name: projectMode === "new" ? newProjectName : undefined,
       };
       const updated = await updateMemo(currentMemo.id, payload);
       setCurrentMemo(updated);
       setState("review");
       await fetchMemos();
+      await fetchProjects();
     } catch (err) {
       console.error(err);
       setError("Failed to save memo updates.");
@@ -163,8 +187,11 @@ export default function App() {
           />
           <ProjectSelector
             mode={projectMode}
+            projects={projects}
+            selectedProjectId={selectedProjectId}
             newProjectName={newProjectName}
             onModeChange={setProjectMode}
+            onProjectChange={setSelectedProjectId}
             onNameChange={setNewProjectName}
             disabled={state === "saving"}
           />
@@ -186,7 +213,11 @@ export default function App() {
         </section>
 
         <section className="right-column">
-          <Timeline memos={memos} onSelect={handleSelectMemo} />
+          <Timeline
+            memos={memos}
+            onSelect={handleSelectMemo}
+            projectNameById={Object.fromEntries(projects.map((p) => [p.id, p.name]))}
+          />
         </section>
       </main>
     </div>

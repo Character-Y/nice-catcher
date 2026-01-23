@@ -12,6 +12,13 @@ export type Memo = {
   created_at: string;
 };
 
+export type Project = {
+  id: string;
+  name: string;
+  description?: string | null;
+  created_at: string;
+};
+
 export type CaptureResponse = {
   id: string;
   status: MemoStatus;
@@ -45,6 +52,11 @@ export async function captureAudio(file: File, attachments?: unknown[]) {
 
 export async function listMemos(params?: { status?: MemoStatus; project_id?: string }) {
   const response = await api.get<Memo[]>("/memos", { params });
+  return response.data;
+}
+
+export async function listProjects() {
+  const response = await api.get<Project[]>("/projects");
   return response.data;
 }
 

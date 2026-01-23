@@ -18,6 +18,7 @@ API_PREFIX = "/api/v1"
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 AUDIO_DIR = DATA_DIR / "audio"
 MEMOS_PATH = DATA_DIR / "memos.json"
+PROJECTS_PATH = DATA_DIR / "projects.json"
 USE_MOCK = os.getenv("USE_MOCK", "true").lower() in {"1", "true", "yes"}
 STATIC_DIR = Path(os.getenv("STATIC_DIR", "./static"))
 INDEX_FILE = STATIC_DIR / "index.html"
@@ -49,11 +50,20 @@ class MemoUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class Project(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    created_at: str
+
+
 def ensure_storage() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     if not MEMOS_PATH.exists():
         MEMOS_PATH.write_text("[]", encoding="utf-8")
+    if not PROJECTS_PATH.exists():
+        PROJECTS_PATH.write_text("[]", encoding="utf-8")
 
 
 def load_memos() -> list[dict[str, Any]]:
@@ -68,6 +78,23 @@ def load_memos() -> list[dict[str, Any]]:
 def save_memos(memos: list[dict[str, Any]]) -> None:
     ensure_storage()
     MEMOS_PATH.write_text(json.dumps(memos, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+def load_projects() -> list[dict[str, Any]]:
+    ensure_storage()
+    raw = PROJECTS_PATH.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+
+
+def save_projects(projects: list[dict[str, Any]]) -> None:
+    ensure_storage()
+    PROJECTS_PATH.write_text(
+        json.dumps(projects, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
 
 
 def parse_attachments(attachments: Optional[str]) -> list[dict[str, Any]]:
@@ -134,9 +161,27 @@ def list_memos_supabase(status: Optional[str], project_id: Optional[str]) -> lis
     return response.data or []
 
 
+def list_projects_supabase() -> list[dict[str, Any]]:
+    supabase = get_supabase()
+    response = supabase.table("projects").select("*").execute()
+    return response.data or []
+
+
 def create_project_if_needed(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
+    if USE_MOCK:
+        projects = load_projects()
+        project_id = str(uuid.uuid4())
+        project = {
+            "id": project_id,
+            "name": name,
+            "description": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        projects.append(project)
+        save_projects(projects)
+        return project_id
     supabase = get_supabase()
     response = supabase.table("projects").insert({"name": name}).execute()
     if getattr(response, "data", None):
@@ -279,6 +324,15 @@ def list_memos(
 
     memos = list_memos_supabase(status, project_id)
     return [Memo(**memo) for memo in memos]
+
+
+@app.get(f"{API_PREFIX}/projects", response_model=list[Project])
+def list_projects() -> list[Project]:
+    if USE_MOCK:
+        projects = load_projects()
+        return [Project(**project) for project in projects]
+    projects = list_projects_supabase()
+    return [Project(**project) for project in projects]
 
 
 @app.get("/", response_class=HTMLResponse)
