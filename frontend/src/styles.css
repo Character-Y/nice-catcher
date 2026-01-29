@@ -59,6 +59,44 @@ h1 {
   font-size: 14px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ghost-button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: inherit;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.auth-page {
+  max-width: 640px;
+}
+
+.auth-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.field input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: inherit;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
 .dot {
   width: 10px;
   height: 10px;
@@ -255,6 +293,11 @@ h1 {
   background: rgba(8, 12, 24, 0.5);
   color: #f4f6fb;
   cursor: pointer;
+}
+
+.timeline-audio {
+  width: 100%;
+  margin-top: 0.75rem;
 }
 
 .timeline-card:hover {

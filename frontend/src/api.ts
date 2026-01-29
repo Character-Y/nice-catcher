@@ -6,6 +6,7 @@ export type Memo = {
   id: string;
   content?: string | null;
   audio_path: string;
+  audio_url?: string | null;
   project_id?: string | null;
   status: MemoStatus;
   attachments: Record<string, unknown>[];
@@ -36,6 +37,29 @@ export type MemoUpdate = {
 
 const api = axios.create({
   baseURL: "/api/v1",
+});
+
+const TOKEN_STORAGE_KEY = "nc_token";
+
+export function getAuthToken() {
+  return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function setAuthToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
+
+api.interceptors.request.use((config) => {
+  const token = getAuthToken();
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 export async function captureAudio(file: File, attachments?: unknown[]) {

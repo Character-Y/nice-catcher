@@ -4,7 +4,14 @@ import ActionBubble from "./components/ActionBubble";
 import ProjectSelector from "./components/ProjectSelector";
 import Timeline from "./components/Timeline";
 import TranscriptionEditor from "./components/TranscriptionEditor";
-import { captureAudio, listMemos, listProjects, updateMemo } from "./api";
+import {
+  captureAudio,
+  getAuthToken,
+  listMemos,
+  listProjects,
+  setAuthToken,
+  updateMemo,
+} from "./api";
 import type { Memo, Project } from "./api";
 
 type RecorderState = "idle" | "recording" | "saving" | "review";
@@ -12,6 +19,10 @@ type RecorderState = "idle" | "recording" | "saving" | "review";
 export default function App() {
   const [state, setState] = useState<RecorderState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(getAuthToken());
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [transcription, setTranscription] = useState("");
   const [currentMemo, setCurrentMemo] = useState<Memo | null>(null);
   const [memos, setMemos] = useState<Memo[]>([]);
@@ -25,22 +36,34 @@ export default function App() {
   const streamRef = useRef<MediaStream | null>(null);
 
   const fetchMemos = useCallback(async () => {
+    if (!token) {
+      return;
+    }
     try {
       const data = await listMemos();
       setMemos(data.sort((a, b) => b.created_at.localeCompare(a.created_at)));
     } catch (err) {
       console.error(err);
+      setAuthError("Session expired. Please log in again.");
+      setAuthToken(null);
+      setToken(null);
     }
-  }, []);
+  }, [token]);
 
   const fetchProjects = useCallback(async () => {
+    if (!token) {
+      return;
+    }
     try {
       const data = await listProjects();
       setProjects(data);
     } catch (err) {
       console.error(err);
+      setAuthError("Session expired. Please log in again.");
+      setAuthToken(null);
+      setToken(null);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     fetchMemos();
@@ -55,6 +78,10 @@ export default function App() {
 
   const startRecording = async () => {
     setError(null);
+    if (!token) {
+      setAuthError("Please log in to start recording.");
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("Audio recording is not supported in this browser.");
       return;
@@ -150,6 +177,86 @@ export default function App() {
     }
   };
 
+  const handleLogin = async () => {
+    setAuthError(null);
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setAuthError("Missing Supabase client config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
+    try {
+      const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: {
+          apikey: supabaseAnonKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error_description || "Login failed.");
+      }
+      const payload = await response.json();
+      setAuthToken(payload.access_token);
+      setToken(payload.access_token);
+      setEmail("");
+      setPassword("");
+    } catch (loginErr) {
+      console.error(loginErr);
+      setAuthError("Login failed. Check your credentials.");
+    }
+  };
+
+  const handleLogout = () => {
+    setAuthToken(null);
+    setToken(null);
+    setCurrentMemo(null);
+    setTranscription("");
+    setMemos([]);
+    setProjects([]);
+  };
+
+  if (!token) {
+    return (
+      <div className="app auth-page">
+        <header className="app-header">
+          <div>
+            <p className="eyebrow">Nice Catcher</p>
+            <h1>Welcome back</h1>
+            <p className="subtitle">Sign in to access your private workspace.</p>
+          </div>
+        </header>
+        <main className="panel auth-panel">
+          <h2 className="panel-title">Login</h2>
+          <label className="field">
+            Email
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+            />
+          </label>
+          <label className="field">
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="••••••••"
+            />
+          </label>
+          {authError && <div className="error-card">{authError}</div>}
+          <button type="button" className="primary-button" onClick={handleLogin}>
+            Sign in
+          </button>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -158,15 +265,20 @@ export default function App() {
           <h1>Capture ideas fast.</h1>
           <p className="subtitle">Record, transcribe, review, and archive in seconds.</p>
         </div>
-        <div className="status-pill">
-          <span className={`dot ${state}`} />
-          {state === "recording"
-            ? "Recording"
-            : state === "saving"
-              ? "Saving"
-              : state === "review"
-                ? "Review"
-                : "Idle"}
+        <div className="header-actions">
+          <button type="button" className="ghost-button" onClick={handleLogout}>
+            Sign out
+          </button>
+          <div className="status-pill">
+            <span className={`dot ${state}`} />
+            {state === "recording"
+              ? "Recording"
+              : state === "saving"
+                ? "Saving"
+                : state === "review"
+                  ? "Review"
+                  : "Idle"}
+          </div>
         </div>
       </header>
 

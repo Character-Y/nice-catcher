@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -29,6 +29,7 @@ AI_BUILDER_TOKEN = os.getenv("AI_BUILDER_TOKEN")
 AI_BUILDER_BASE_URL = os.getenv("AI_BUILDER_BASE_URL", "https://space.ai-builders.com")
 AI_BUILDER_FILE_FIELD = os.getenv("AI_BUILDER_FILE_FIELD", "audio_file")
 AI_BUILDER_MODEL = os.getenv("AI_BUILDER_MODEL", "whisper-1")
+SIGNED_URL_TTL_SECONDS = int(os.getenv("SIGNED_URL_TTL_SECONDS", "3600"))
 
 _supabase: Optional[Client] = None
 
@@ -41,6 +42,7 @@ class Memo(BaseModel):
     status: str = "pending"
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     created_at: str
+    audio_url: Optional[str] = None
 
 
 class MemoUpdate(BaseModel):
@@ -52,6 +54,7 @@ class MemoUpdate(BaseModel):
 
 class Project(BaseModel):
     id: str
+    user_id: Optional[str] = None
     name: str
     description: Optional[str] = None
     created_at: str
@@ -122,6 +125,25 @@ def get_supabase() -> Client:
     return _supabase
 
 
+def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid Authorization header")
+    token = parts[1]
+    supabase = get_supabase()
+    response = supabase.auth.get_user(token)
+    user = getattr(response, "user", None) or getattr(response, "data", None) or response
+    if isinstance(user, dict):
+        user_id = user.get("id")
+    else:
+        user_id = getattr(user, "id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return user_id
+
+
 def upload_to_supabase(audio_path: str, content_type: str, file_bytes: bytes) -> str:
     supabase = get_supabase()
     response = supabase.storage.from_(SUPABASE_BUCKET).upload(
@@ -134,6 +156,21 @@ def upload_to_supabase(audio_path: str, content_type: str, file_bytes: bytes) ->
     return audio_path
 
 
+def create_signed_url(audio_path: str) -> str:
+    supabase = get_supabase()
+    response = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(
+        audio_path,
+        SIGNED_URL_TTL_SECONDS,
+    )
+    if isinstance(response, dict):
+        signed_url = response.get("signedURL") or response.get("signed_url") or response.get("signedUrl")
+    else:
+        signed_url = getattr(response, "signedURL", None) or getattr(response, "signed_url", None)
+    if not signed_url:
+        raise HTTPException(status_code=500, detail="Failed to create signed audio URL")
+    return signed_url
+
+
 def insert_memo_supabase(payload: dict[str, Any]) -> dict[str, Any]:
     supabase = get_supabase()
     response = supabase.table("memos").insert(payload).execute()
@@ -142,17 +179,27 @@ def insert_memo_supabase(payload: dict[str, Any]) -> dict[str, Any]:
     raise HTTPException(status_code=500, detail="Failed to create memo")
 
 
-def update_memo_supabase(memo_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def update_memo_supabase(memo_id: str, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     supabase = get_supabase()
-    response = supabase.table("memos").update(payload).eq("id", memo_id).execute()
+    response = (
+        supabase.table("memos")
+        .update(payload)
+        .eq("id", memo_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
     if getattr(response, "data", None):
         return response.data[0]
-    raise HTTPException(status_code=500, detail="Failed to update memo")
+    raise HTTPException(status_code=404, detail="memo not found")
 
 
-def list_memos_supabase(status: Optional[str], project_id: Optional[str]) -> list[dict[str, Any]]:
+def list_memos_supabase(
+    user_id: str,
+    status: Optional[str],
+    project_id: Optional[str],
+) -> list[dict[str, Any]]:
     supabase = get_supabase()
-    query = supabase.table("memos").select("*")
+    query = supabase.table("memos").select("*").eq("user_id", user_id)
     if status:
         query = query.eq("status", status)
     if project_id:
@@ -161,13 +208,13 @@ def list_memos_supabase(status: Optional[str], project_id: Optional[str]) -> lis
     return response.data or []
 
 
-def list_projects_supabase() -> list[dict[str, Any]]:
+def list_projects_supabase(user_id: str) -> list[dict[str, Any]]:
     supabase = get_supabase()
-    response = supabase.table("projects").select("*").execute()
+    response = supabase.table("projects").select("*").eq("user_id", user_id).execute()
     return response.data or []
 
 
-def create_project_if_needed(name: Optional[str]) -> Optional[str]:
+def create_project_if_needed(user_id: str, name: Optional[str]) -> Optional[str]:
     if not name:
         return None
     if USE_MOCK:
@@ -175,6 +222,7 @@ def create_project_if_needed(name: Optional[str]) -> Optional[str]:
         project_id = str(uuid.uuid4())
         project = {
             "id": project_id,
+            "user_id": user_id,
             "name": name,
             "description": None,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -183,10 +231,23 @@ def create_project_if_needed(name: Optional[str]) -> Optional[str]:
         save_projects(projects)
         return project_id
     supabase = get_supabase()
-    response = supabase.table("projects").insert({"name": name}).execute()
+    response = supabase.table("projects").insert({"name": name, "user_id": user_id}).execute()
     if getattr(response, "data", None):
         return response.data[0]["id"]
     raise HTTPException(status_code=500, detail="Failed to create project")
+
+
+def ensure_project_owner(project_id: str, user_id: str) -> None:
+    supabase = get_supabase()
+    response = (
+        supabase.table("projects")
+        .select("id")
+        .eq("id", project_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=403, detail="Project not found or not owned")
 
 
 def call_transcription_api(filename: str, content_type: str, file_bytes: bytes) -> str:
@@ -236,6 +297,7 @@ def health_check() -> dict[str, str]:
 
 @app.post(f"{API_PREFIX}/capture")
 async def capture(
+    user_id: str = Depends(get_current_user_id),
     file: UploadFile = File(...),
     attachments: Optional[str] = Form(None),
 ) -> dict[str, Any]:
@@ -251,6 +313,7 @@ async def capture(
         "content": None,
         "audio_path": None,
         "project_id": None,
+        "user_id": user_id,
         "status": "pending",
         "attachments": memo_attachments,
     }
@@ -269,40 +332,52 @@ async def capture(
         save_memos(memos)
         stored_memo = memo_payload
     else:
-        audio_path = filename
+        audio_path = f"{user_id}/{filename}"
         memo_payload["audio_path"] = upload_to_supabase(audio_path, content_type, file_bytes)
         stored_memo = insert_memo_supabase(memo_payload)
         transcription = call_transcription_api(filename, content_type, file_bytes)
         stored_memo = update_memo_supabase(
             memo_id,
+            user_id,
             {"content": transcription, "status": "review_needed"},
         )
 
+    audio_url = create_signed_url(stored_memo["audio_path"])
+    stored_memo["audio_url"] = audio_url
     return {
         "id": memo_id,
         "status": stored_memo["status"],
-        "audio_url": stored_memo["audio_path"],
+        "audio_url": audio_url,
         "estimated_wait": "2s" if USE_MOCK else "pending",
         "memo": stored_memo,
     }
 
 
 @app.patch(f"{API_PREFIX}/memos" + "/{memo_id}", response_model=Memo)
-def update_memo(memo_id: str, payload: MemoUpdate) -> Memo:
+def update_memo(
+    memo_id: str,
+    payload: MemoUpdate,
+    user_id: str = Depends(get_current_user_id),
+) -> Memo:
     fields_set = payload.model_fields_set
     update = {field: getattr(payload, field) for field in fields_set}
     project_name = update.pop("new_project_name", None)
     if project_name and "project_id" not in update:
-        update["project_id"] = create_project_if_needed(project_name)
+        update["project_id"] = create_project_if_needed(user_id, project_name)
+    if update.get("project_id"):
+        ensure_project_owner(update["project_id"], user_id)
 
     if USE_MOCK:
         memos = load_memos()
         memo = find_memo(memos, memo_id)
+        if memo.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="memo not found")
         memo.update(update)
         save_memos(memos)
         return Memo(**memo)
 
-    memo = update_memo_supabase(memo_id, update)
+    memo = update_memo_supabase(memo_id, user_id, update)
+    memo["audio_url"] = create_signed_url(memo["audio_path"])
     return Memo(**memo)
 
 
@@ -310,28 +385,34 @@ def update_memo(memo_id: str, payload: MemoUpdate) -> Memo:
 def list_memos(
     status: Optional[str] = None,
     project_id: Optional[str] = None,
+    user_id: str = Depends(get_current_user_id),
 ) -> list[Memo]:
     if USE_MOCK:
         memos = load_memos()
         results = []
         for memo in memos:
+            if memo.get("user_id") != user_id:
+                continue
             if status and memo["status"] != status:
                 continue
             if project_id and memo["project_id"] != project_id:
                 continue
+            memo["audio_url"] = memo.get("audio_url") or memo["audio_path"]
             results.append(Memo(**memo))
         return results
 
-    memos = list_memos_supabase(status, project_id)
+    memos = list_memos_supabase(user_id, status, project_id)
+    for memo in memos:
+        memo["audio_url"] = create_signed_url(memo["audio_path"])
     return [Memo(**memo) for memo in memos]
 
 
 @app.get(f"{API_PREFIX}/projects", response_model=list[Project])
-def list_projects() -> list[Project]:
+def list_projects(user_id: str = Depends(get_current_user_id)) -> list[Project]:
     if USE_MOCK:
         projects = load_projects()
-        return [Project(**project) for project in projects]
-    projects = list_projects_supabase()
+        return [Project(**project) for project in projects if project.get("user_id") == user_id]
+    projects = list_projects_supabase(user_id)
     return [Project(**project) for project in projects]
 
 
