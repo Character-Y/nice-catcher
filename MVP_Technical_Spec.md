@@ -75,7 +75,7 @@ Base URL: `/api/v1`
   3. Create `memos` entry with `user_id`, `project_id=NULL` (Inbox), `status="pending"`, and `attachments`.
   4. **Async Task**: Call Transcription API -> Update `memos.content` -> Update `status="review_needed"`.
   5. Generate **Signed URL** for the uploaded audio.
-  6. Return `memo_id` and `signed_audio_url` immediately.
+  6. Return `memo_id` and the Signed URL (as `audio_url`).
 - **Response**:
   ```json
   {
