@@ -119,7 +119,7 @@ Base URL: `/api/v1`
     - `ActionBubble`: Central recording button. **Click-to-start, Click-to-stop**. Visualizes audio levels.
     - `TranscriptionEditor`: Text area. Includes "Save" (PATCH /memos) and "Discard" actions.
     - `ProjectSelector`: Dropdown/Create New Project.
-    - `Timeline`: List of memo cards. **Must include Audio Player** (play `audio_path`) and text preview.
+    - `Timeline`: List of memo cards. **Must include Audio Player** (play `audio_url` from API) and text preview.
 
 ### 5.2 Key Libraries
 - `axios`: API requests.
