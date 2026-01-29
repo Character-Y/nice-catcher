@@ -61,7 +61,7 @@ The MVP focuses on a streamlined flow: Record -> Transcribe (High Accuracy) -> R
 ## 4. API Design (FastAPI)
 
 Base URL: `/api/v1`
-**Security**: All endpoints require `Authorization: Bearer <token>` header. Backend verifies token with Supabase.
+**Security**: All endpoints require `Authorization: Bearer <token>` header. Backend verifies token **via Supabase Auth API** (simpler for MVP).
 
 ### 4.1 Quick Capture (The Core API)
 **POST** `/capture`
