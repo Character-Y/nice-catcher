@@ -14,29 +14,34 @@ The MVP focuses on a streamlined flow: Record -> Transcribe (High Accuracy) -> R
   - Acts as the main application server.
   - Handles API requests, integration with Transcription Service, and Supabase interactions.
 - **Database**: Supabase (PostgreSQL)
+- **Authentication**: Supabase Auth (Email/Password + OAuth / JWT)
 - **Object Storage**: Supabase Storage (for audio files)
 - **AI Service**: AI Builder Space API (`/v1/audio/transcriptions`)
   - **Reference**: [OpenAPI Spec](https://space.ai-builders.com/backend/openapi.json) - *Consult this JSON for API implementation details.*
 - **Deployment**: Docker container on AI Builder Space (Single Process: FastAPI serves React)
 
 ### 2.2 Data Flow
-1. **Capture**: User records audio in browser.
-2. **Safe Save (Auto)**: Upon stopping, audio is **immediately** uploaded to FastAPI.
-3. **Persist & Process**: 
+1. **Auth**: User logs in once; Session persists locally (long-lived token).
+2. **Capture**: User records audio **in browser**. Request includes Auth Token.
+3. **Safe Save (Auto)**: Audio is uploaded to FastAPI. Backend validates Token & extracts `User ID`.
+4. **Persist & Process**: 
    - Backend saves audio to Supabase Storage (bucket: `memos-audio`).
-   - Backend creates a DB record in `memos` with **`project_id=NULL` (Inbox)**.
+   - Backend creates a DB record in `memos` with `project_id=NULL` (Inbox) AND `user_id`.
    - Backend calls **AI Builder Space API** for transcription.
-4. **Update**: 
+5. **Update**: 
    - Once transcription is ready, Backend updates the DB record with text.
-   - Frontend receives the text (via response or polling).
-5. **Review (Async)**: User can edit text/category immediately OR leave it for later in the "Inbox".
+   - Frontend receives the text (via response polling or manual refresh).
+6. **Review (Async)**: User can edit text/project immediately OR leave it for later in the "Inbox". User sees their own data only (enforced by RLS).
 
 ## 3. Database Schema (Supabase)
+
+**Security Note**: Enable Row Level Security (RLS) on all tables. Policy: `auth.uid() = user_id`.
 
 ### 3.1 Table: `projects`
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | uuid | PK | Unique Project ID |
+| `user_id` | uuid | FK, NOT NULL | **Owner (Link to auth.users)** |
 | `name` | text | NOT NULL | "AI Article", "Weekend Trip" |
 | `description` | text | NULL | Optional context |
 | `created_at` | timestamptz | default: now() | Creation time |
@@ -45,6 +50,7 @@ The MVP focuses on a streamlined flow: Record -> Transcribe (High Accuracy) -> R
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | uuid | PK | Unique Memo ID |
+| `user_id` | uuid | FK, NOT NULL | **Owner (Link to auth.users)** |
 | `content` | text | NULL | Transcribed text (NULL initially) |
 | `audio_path` | text | NOT NULL | Path in Supabase Storage (Core media) |
 | `project_id` | uuid | FK, NULLABLE | **NULL = Inbox**. Points to a Project when sorted. |
@@ -55,6 +61,7 @@ The MVP focuses on a streamlined flow: Record -> Transcribe (High Accuracy) -> R
 ## 4. API Design (FastAPI)
 
 Base URL: `/api/v1`
+**Security**: All endpoints require `Authorization: Bearer <token>` header. Backend verifies token with Supabase.
 
 ### 4.1 Quick Capture (The Core API)
 **POST** `/capture`
@@ -63,20 +70,21 @@ Base URL: `/api/v1`
   - `file`: Audio file (Blob)
   - `attachments`: string (Optional JSON string, e.g. `[{"type":"location", "lat":...}]`)
 - **Process**:
-  1. Upload `file` to Supabase Storage.
-  2. Create `memos` entry with **`project_id=NULL` (Inbox)**, `status="pending"`, and `attachments`.
-  3. **Async Task**: Call Transcription API -> Update `memos.content` -> Update `status="review_needed"`.
-  4. Return `memo_id` immediately (or wait for transcript if fast enough - for MVP we can wait).
+  1. **Auth**: Extract `user_id` from Bearer Token.
+  2. Upload `file` to Supabase Storage.
+  3. Create `memos` entry with `user_id`, `project_id=NULL` (Inbox), `status="pending"`, and `attachments`.
+  4. **Async Task**: Call Transcription API -> Update `memos.content` -> Update `status="review_needed"`.
+  5. Generate **Signed URL** for the uploaded audio.
+  6. Return `memo_id` and `signed_audio_url` immediately.
 - **Response**:
   ```json
   {
     "id": "uuid",
     "status": "processing", 
-    "audio_url": "...",
+    "audio_url": "https://supabase.../token=...",
     "estimated_wait": "2s" 
   }
   ```
-  *(Note: For strict MVP without Celery/Redis, we can make this synchronous: User sees a spinner for 2-3s while uploading+transcribing, then gets the result. This is simplest.)*
 
 ### 4.2 Memos Management
 **PATCH** `/memos/{memo_id}`
@@ -86,22 +94,32 @@ Base URL: `/api/v1`
   - `project_id`: uuid (Target project)
   - `new_project_name`: string (Optional: Create new project if provided)
   - `status`: "done"
+- **Process**: Ensure `memo_id` belongs to `current_user`.
 - **Response**: Updated Memo object.
 
 **GET** `/memos`
 - **Purpose**: Fetch timeline.
 - **Query Params**: `status`, `project_id`.
+- **Process**: 
+  1. Filter results by `user_id`.
+  2. **Crucial**: Convert stored `audio_path` to short-lived **Signed URL** (e.g., 1 hour validity) via Supabase Storage API. Return this Signed URL as `audio_url`.
+
+### 4.3 Static Files & SPA Serving
+- **GET** `/static/*`: Serve static assets (JS/CSS) from `/app/static`.
+- **GET** `/{full_path}`: Catch-all route. Returns `index.html` to support React Router (SPA).
 
 ## 5. Frontend Specifications (React)
 
 ### 5.1 Route Structure
-- `/`: **Dashboard & Recorder**.
+- `/login`: **Auth Page**. (Email/Password or OAuth).
+- `/`: **Dashboard & Recorder** (Protected Route).
+  - **Auth Logic**: Check for Session -> Redirect to Login if invalid.
   - **State**: `Idle` | `Recording` | `Review` | `Saving`.
   - **Components**:
-    - `ActionBubble`: Central recording button (Liquid glass effect).
-    - `TranscriptionEditor`: Text area to review transcription output.
+    - `ActionBubble`: Central recording button. **Click-to-start, Click-to-stop**. Visualizes audio levels.
+    - `TranscriptionEditor`: Text area. Includes "Save" (PATCH /memos) and "Discard" actions.
     - `ProjectSelector`: Dropdown/Create New Project.
-    - `Timeline`: List of past memos cards.
+    - `Timeline`: List of memo cards. **Must include Audio Player** (play `audio_path`) and text preview.
 
 ### 5.2 Key Libraries
 - `axios`: API requests.
