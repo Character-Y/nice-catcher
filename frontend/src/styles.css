@@ -153,6 +153,27 @@ h1 {
   gap: 12px;
 }
 
+.bubble-shell {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.bubble-meter {
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(121, 167, 255, 0.35), rgba(121, 167, 255, 0));
+  filter: blur(2px);
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.bubble-meter.recording {
+  background: radial-gradient(circle, rgba(255, 99, 132, 0.45), rgba(255, 99, 132, 0));
+}
+
 .bubble-button {
   width: 96px;
   height: 96px;
@@ -232,6 +253,31 @@ h1 {
 .primary-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(8, 12, 24, 0.5);
+  color: #f4f6fb;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .error-card,
@@ -338,6 +384,11 @@ h1 {
 .timeline-content {
   margin: 0 0 8px;
   font-size: 14px;
+}
+
+.timeline-audio {
+  width: 100%;
+  margin: 0 0 8px;
 }
 
 .timeline-project {

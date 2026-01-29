@@ -40,6 +40,7 @@ const api = axios.create({
 });
 
 const TOKEN_STORAGE_KEY = "nc_token";
+const AUTH_EVENT = "nc:auth-change";
 
 export function getAuthToken() {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -51,6 +52,7 @@ export function setAuthToken(token: string | null) {
   } else {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
+  window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: token }));
 }
 
 api.interceptors.request.use((config) => {
@@ -61,6 +63,26 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    if (status === 401) {
+      setAuthToken(null);
+    }
+    return Promise.reject(error);
+  }
+);
+
+export function subscribeToAuthChange(listener: (token: string | null) => void) {
+  const handler = (event: Event) => {
+    const custom = event as CustomEvent<string | null>;
+    listener(custom.detail ?? null);
+  };
+  window.addEventListener(AUTH_EVENT, handler);
+  return () => window.removeEventListener(AUTH_EVENT, handler);
+}
 
 export async function captureAudio(file: File, attachments?: unknown[]) {
   const form = new FormData();
