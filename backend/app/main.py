@@ -285,9 +285,8 @@ def find_memo(memos: list[dict[str, Any]], memo_id: str) -> dict[str, Any]:
 
 app = FastAPI(title="Nice Catcher API", version="0.1.0")
 
-assets_dir = STATIC_DIR / "assets"
-if assets_dir.exists():
-    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/health")
@@ -425,7 +424,7 @@ def serve_index() -> HTMLResponse:
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 def spa_fallback(full_path: str) -> HTMLResponse:
-    if full_path.startswith("api/") or full_path.startswith("health"):
+    if full_path.startswith(("api/", "health", "static/", "assets/")):
         raise HTTPException(status_code=404, detail="not found")
     if INDEX_FILE.exists():
         return FileResponse(INDEX_FILE)
