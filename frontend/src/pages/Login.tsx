@@ -16,6 +16,13 @@ export default function Login({ onLogin }: LoginProps) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const parseAuthError = (payload: any, fallback: string) => {
+    const description =
+      payload?.error_description || payload?.message || payload?.error || payload?.msg || fallback;
+    const code = payload?.error_code || payload?.code || "";
+    return { description: String(description), code: String(code) };
+  };
+
   useEffect(() => {
     const existing = getAuthError();
     if (existing) {
@@ -54,18 +61,18 @@ export default function Login({ onLogin }: LoginProps) {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        let description =
-          payload?.error_description || payload?.message || payload?.error || "Login failed.";
+        const parsed = parseAuthError(payload, "Login failed.");
+        let normalized = parsed.description;
         if (response.status === 400 || response.status === 401) {
           if (
-            description === "Login failed." ||
-            description.toLowerCase().includes("invalid") ||
-            description.toLowerCase().includes("credentials")
+            parsed.code.toLowerCase().includes("invalid") ||
+            parsed.description.toLowerCase().includes("invalid") ||
+            parsed.description.toLowerCase().includes("credentials")
           ) {
-            description = "invalid_login_credentials";
+            normalized = "invalid_login_credentials";
           }
         }
-        throw new Error(description);
+        throw new Error(normalized);
       }
       const payload = await response.json();
       setAuthError(null);
@@ -131,9 +138,26 @@ export default function Login({ onLogin }: LoginProps) {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        const description =
-          payload?.error_description || payload?.message || payload?.error || "Sign up failed.";
-        throw new Error(description);
+        const parsed = parseAuthError(payload, "Sign up failed.");
+        const normalized = `${parsed.code}|${parsed.description}`.toLowerCase();
+        if (normalized.includes("over_email_send_rate_limit")) {
+          throw new Error("rate_limit");
+        }
+        if (normalized.includes("email_address_invalid")) {
+          throw new Error("email_invalid");
+        }
+        if (
+          normalized.includes("user_already") ||
+          normalized.includes("already registered") ||
+          normalized.includes("already_exists") ||
+          normalized.includes("email_address_taken")
+        ) {
+          throw new Error("email_exists");
+        }
+        if (normalized.includes("password")) {
+          throw new Error("password_invalid");
+        }
+        throw new Error(parsed.description);
       }
       const payload = await response.json();
       const accessToken = payload?.access_token ?? payload?.session?.access_token ?? null;
@@ -157,12 +181,14 @@ export default function Login({ onLogin }: LoginProps) {
         signupErr instanceof Error && signupErr.message
           ? signupErr.message
           : "Sign up failed. Please check your email and try again.";
-      if (message.toLowerCase().includes("already registered")) {
+      if (message === "email_exists" || message.toLowerCase().includes("already registered")) {
         setAuthErrorState("Email already registered. Try signing in instead.");
-      } else if (message.toLowerCase().includes("invalid email")) {
+      } else if (message === "email_invalid" || message.toLowerCase().includes("invalid email")) {
         setAuthErrorState("Email format is invalid.");
-      } else if (message.toLowerCase().includes("password")) {
+      } else if (message === "password_invalid" || message.toLowerCase().includes("password")) {
         setAuthErrorState("Password does not meet requirements.");
+      } else if (message === "rate_limit") {
+        setAuthErrorState("Too many sign-up attempts. Please wait and try again.");
       } else {
         setAuthErrorState(message);
       }
