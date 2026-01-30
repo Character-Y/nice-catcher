@@ -179,6 +179,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
           setState("idle");
         }
         mediaRecorderRef.current = null;
+        releaseStream();
       };
       mediaRecorderRef.current = recorder;
       recorder.start();
@@ -260,7 +261,21 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
   };
 
   useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        stopMeter();
+        releaseStream();
+      }
+    };
+    const handlePageHide = () => {
+      stopMeter();
+      releaseStream();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", handlePageHide);
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", handlePageHide);
       stopMeter();
       releaseStream();
     };
