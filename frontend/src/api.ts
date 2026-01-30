@@ -135,3 +135,7 @@ export async function updateMemo(memoId: string, payload: MemoUpdate) {
   const response = await api.patch<Memo>(`/memos/${memoId}`, payload);
   return response.data;
 }
+
+export async function deleteMemo(memoId: string) {
+  await api.delete(`/memos/${memoId}`);
+}

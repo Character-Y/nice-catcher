@@ -279,6 +279,25 @@ h1 {
   cursor: not-allowed;
 }
 
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 99, 132, 0.2);
+  color: #ff6384;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.danger-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .secondary-button {
   display: inline-flex;
   align-items: center;
@@ -381,13 +400,48 @@ h1 {
 }
 
 .timeline-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   text-align: left;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
   padding: 12px 14px;
   background: rgba(8, 12, 24, 0.5);
   color: #f4f6fb;
+}
+
+.timeline-select {
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
   cursor: pointer;
+}
+
+.timeline-select:focus-visible {
+  outline: 2px solid rgba(121, 167, 255, 0.6);
+  outline-offset: 4px;
+}
+
+.icon-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.icon-button.danger {
+  color: #ff9aa2;
 }
 
 .timeline-audio {
