@@ -175,10 +175,55 @@ export default function Login({ onLogin }: LoginProps) {
       if (identities && identities.length === 0) {
         setAuthErrorState("Email already registered. Try signing in instead.");
         setMode("login");
-      } else {
-        setAuthSuccess("Check your email to confirm your account, then sign in.");
-        setMode("login");
+        setPassword("");
+        setConfirmPassword("");
+        return;
       }
+      const loginResponse = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: {
+          apikey: supabaseAnonKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      if (loginResponse.ok) {
+        const loginPayload = await loginResponse.json();
+        const loginToken = loginPayload?.access_token ?? loginPayload?.session?.access_token ?? null;
+        if (loginToken) {
+          setAuthError(null);
+          setAuthToken(loginToken);
+          onLogin(loginToken);
+          setEmail("");
+          setPassword("");
+          setConfirmPassword("");
+          navigate("/", { replace: true });
+          return;
+        }
+      } else {
+        const loginPayload = await loginResponse.json().catch(() => ({}));
+        const parsed = parseAuthError(loginPayload, "Login failed.");
+        const normalized = `${parsed.code}|${parsed.description}`.toLowerCase();
+        if (normalized.includes("email_not_confirmed") || normalized.includes("email not confirmed")) {
+          setAuthSuccess("Check your email to confirm your account, then sign in.");
+          setMode("login");
+          setPassword("");
+          setConfirmPassword("");
+          return;
+        }
+        if (
+          normalized.includes("invalid_credentials") ||
+          normalized.includes("invalid login credentials")
+        ) {
+          setAuthErrorState("Email already registered. Try signing in instead.");
+          setMode("login");
+          setPassword("");
+          setConfirmPassword("");
+          return;
+        }
+      }
+      setAuthSuccess("Check your email to confirm your account, then sign in.");
+      setMode("login");
       setPassword("");
       setConfirmPassword("");
     } catch (signupErr) {
