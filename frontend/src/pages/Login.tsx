@@ -54,8 +54,17 @@ export default function Login({ onLogin }: LoginProps) {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        const description =
+        let description =
           payload?.error_description || payload?.message || payload?.error || "Login failed.";
+        if (response.status === 400 || response.status === 401) {
+          if (
+            description === "Login failed." ||
+            description.toLowerCase().includes("invalid") ||
+            description.toLowerCase().includes("credentials")
+          ) {
+            description = "invalid_login_credentials";
+          }
+        }
         throw new Error(description);
       }
       const payload = await response.json();
@@ -71,7 +80,11 @@ export default function Login({ onLogin }: LoginProps) {
         loginErr instanceof Error && loginErr.message
           ? loginErr.message
           : "Login failed. Check your credentials.";
-      if (message.toLowerCase().includes("invalid login credentials")) {
+      if (
+        message === "invalid_login_credentials" ||
+        message.toLowerCase().includes("invalid login credentials") ||
+        message.toLowerCase().includes("invalid credentials")
+      ) {
         setAuthErrorState("Invalid email or password.");
       } else if (message.toLowerCase().includes("email not confirmed")) {
         setAuthErrorState("Email not confirmed. Please check your inbox.");
