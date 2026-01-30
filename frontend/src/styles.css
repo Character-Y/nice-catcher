@@ -325,6 +325,21 @@ h1 {
   border: 1px solid rgba(77, 212, 172, 0.4);
 }
 
+.info-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(121, 167, 255, 0.12);
+  border: 1px solid rgba(121, 167, 255, 0.4);
+}
+
+.info-card-text {
+  font-size: 13px;
+}
+
 .loading-card {
   background: rgba(121, 167, 255, 0.15);
   border-color: rgba(121, 167, 255, 0.4);

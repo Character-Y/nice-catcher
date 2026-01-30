@@ -10,11 +10,13 @@ export default function Login({ onLogin }: LoginProps) {
   const navigate = useNavigate();
   const [authError, setAuthErrorState] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
+  const [confirmHint, setConfirmHint] = useState<string | null>(null);
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   const parseAuthError = (payload: any, fallback: string) => {
     const description =
@@ -41,6 +43,7 @@ export default function Login({ onLogin }: LoginProps) {
   const handleLogin = async () => {
     setAuthErrorState(null);
     setAuthSuccess(null);
+    setConfirmHint(null);
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -94,7 +97,8 @@ export default function Login({ onLogin }: LoginProps) {
       ) {
         setAuthErrorState("Invalid email or password.");
       } else if (message.toLowerCase().includes("email not confirmed")) {
-        setAuthErrorState("Email not confirmed. Please check your inbox.");
+        setConfirmHint("Email already registered but not confirmed.");
+        setAuthSuccess("Check your inbox for a confirmation email, or resend it.");
       } else {
         setAuthErrorState(message);
       }
@@ -106,6 +110,7 @@ export default function Login({ onLogin }: LoginProps) {
   const handleSignUp = async () => {
     setAuthErrorState(null);
     setAuthSuccess(null);
+    setConfirmHint(null);
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -205,7 +210,8 @@ export default function Login({ onLogin }: LoginProps) {
         const parsed = parseAuthError(loginPayload, "Login failed.");
         const normalized = `${parsed.code}|${parsed.description}`.toLowerCase();
         if (normalized.includes("email_not_confirmed") || normalized.includes("email not confirmed")) {
-          setAuthSuccess("Check your email to confirm your account, then sign in.");
+          setConfirmHint("Email already registered but not confirmed.");
+          setAuthSuccess("Check your inbox for a confirmation email, or resend it.");
           setMode("login");
           setPassword("");
           setConfirmPassword("");
@@ -256,6 +262,51 @@ export default function Login({ onLogin }: LoginProps) {
     }
   };
 
+  const handleResend = async () => {
+    setAuthErrorState(null);
+    setAuthSuccess(null);
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setAuthErrorState(
+        "Missing Supabase client config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY."
+      );
+      return;
+    }
+    if (!email) {
+      setAuthErrorState("Please enter your email first.");
+      return;
+    }
+    setIsResending(true);
+    try {
+      const response = await fetch(`${supabaseUrl}/auth/v1/resend`, {
+        method: "POST",
+        headers: {
+          apikey: supabaseAnonKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ type: "signup", email }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const parsed = parseAuthError(payload, "Resend failed.");
+        const normalized = `${parsed.code}|${parsed.description}`.toLowerCase();
+        if (normalized.includes("over_email_send_rate_limit")) {
+          setAuthErrorState("Email rate limit exceeded. Please wait and try again.");
+        } else {
+          setAuthErrorState(parsed.description);
+        }
+        return;
+      }
+      setAuthSuccess("Confirmation email resent. Please check your inbox.");
+    } catch (err) {
+      console.error(err);
+      setAuthErrorState("Failed to resend confirmation email.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   return (
     <div className="app auth-page">
       <header className="app-header">
@@ -278,6 +329,7 @@ export default function Login({ onLogin }: LoginProps) {
               setMode("login");
               setAuthErrorState(null);
               setAuthSuccess(null);
+              setConfirmHint(null);
             }}
           >
             Login
@@ -289,6 +341,7 @@ export default function Login({ onLogin }: LoginProps) {
               setMode("signup");
               setAuthErrorState(null);
               setAuthSuccess(null);
+              setConfirmHint(null);
             }}
           >
             Sign up
@@ -324,6 +377,19 @@ export default function Login({ onLogin }: LoginProps) {
           </label>
         )}
         {authError && <div className="error-card">{authError}</div>}
+        {confirmHint && (
+          <div className="info-card">
+            <div className="info-card-text">{confirmHint}</div>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleResend}
+              disabled={isResending}
+            >
+              {isResending ? "Resending..." : "Resend confirmation"}
+            </button>
+          </div>
+        )}
         {authSuccess && <div className="success-card">{authSuccess}</div>}
         <button
           type="button"
