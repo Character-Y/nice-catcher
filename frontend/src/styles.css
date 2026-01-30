@@ -83,6 +83,30 @@ h1 {
   gap: 16px;
 }
 
+.auth-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(8, 12, 24, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.auth-tab {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.auth-tab.active {
+  background: rgba(121, 167, 255, 0.25);
+  color: #f4f6fb;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -289,6 +313,16 @@ h1 {
   border-radius: 12px;
   background: rgba(255, 99, 132, 0.15);
   border: 1px solid rgba(255, 99, 132, 0.4);
+}
+
+.success-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(77, 212, 172, 0.15);
+  border: 1px solid rgba(77, 212, 172, 0.4);
 }
 
 .loading-card {
