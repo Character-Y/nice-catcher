@@ -181,12 +181,23 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     }
   };
 
-  const handleDiscard = () => {
+  const handleDiscard = async () => {
     if (!currentMemo) {
       return;
     }
-    setTranscription(currentMemo.content?.toString() || "");
     setError(null);
+    try {
+      const data = await listMemos();
+      const latest = data.find((memo) => memo.id === currentMemo.id);
+      if (latest) {
+        setCurrentMemo(latest);
+        setTranscription(latest.content?.toString() || "");
+        return;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setTranscription(currentMemo.content?.toString() || "");
   };
 
   const handleSave = async () => {
