@@ -41,6 +41,8 @@ const api = axios.create({
 
 const TOKEN_STORAGE_KEY = "nc_token";
 const AUTH_EVENT = "nc:auth-change";
+const AUTH_ERROR_KEY = "nc_auth_error";
+const AUTH_ERROR_EVENT = "nc:auth-error";
 
 export function getAuthToken() {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -53,6 +55,19 @@ export function setAuthToken(token: string | null) {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
   window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: token }));
+}
+
+export function setAuthError(message: string | null) {
+  if (message) {
+    localStorage.setItem(AUTH_ERROR_KEY, message);
+  } else {
+    localStorage.removeItem(AUTH_ERROR_KEY);
+  }
+  window.dispatchEvent(new CustomEvent(AUTH_ERROR_EVENT, { detail: message }));
+}
+
+export function getAuthError() {
+  return localStorage.getItem(AUTH_ERROR_KEY);
 }
 
 api.interceptors.request.use((config) => {
@@ -69,6 +84,7 @@ api.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     if (status === 401) {
+      setAuthError("Session expired. Please sign in again.");
       setAuthToken(null);
     }
     return Promise.reject(error);
@@ -82,6 +98,15 @@ export function subscribeToAuthChange(listener: (token: string | null) => void) 
   };
   window.addEventListener(AUTH_EVENT, handler);
   return () => window.removeEventListener(AUTH_EVENT, handler);
+}
+
+export function subscribeToAuthError(listener: (message: string | null) => void) {
+  const handler = (event: Event) => {
+    const custom = event as CustomEvent<string | null>;
+    listener(custom.detail ?? null);
+  };
+  window.addEventListener(AUTH_ERROR_EVENT, handler);
+  return () => window.removeEventListener(AUTH_ERROR_EVENT, handler);
 }
 
 export async function captureAudio(file: File, attachments?: unknown[]) {

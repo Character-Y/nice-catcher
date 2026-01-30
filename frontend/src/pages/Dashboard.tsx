@@ -64,6 +64,19 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     setNewProjectName("");
   };
 
+  const applyMemoToEditor = (memo: Memo) => {
+    setCurrentMemo(memo);
+    setTranscription(memo.content?.toString() || "");
+    setState("review");
+    if (memo.project_id) {
+      setProjectMode("existing");
+      setSelectedProjectId(memo.project_id);
+      setNewProjectName("");
+    } else {
+      resetProjectInputs();
+    }
+  };
+
   const stopMeter = () => {
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
@@ -169,16 +182,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
   };
 
   const handleSelectMemo = (memo: Memo) => {
-    setCurrentMemo(memo);
-    setTranscription(memo.content?.toString() || "");
-    setState("review");
-    if (memo.project_id) {
-      setProjectMode("existing");
-      setSelectedProjectId(memo.project_id);
-      setNewProjectName("");
-    } else {
-      resetProjectInputs();
-    }
+    applyMemoToEditor(memo);
   };
 
   const handleDiscard = async () => {
@@ -190,14 +194,13 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
       const data = await listMemos();
       const latest = data.find((memo) => memo.id === currentMemo.id);
       if (latest) {
-        setCurrentMemo(latest);
-        setTranscription(latest.content?.toString() || "");
+        applyMemoToEditor(latest);
         return;
       }
     } catch (err) {
       console.error(err);
     }
-    setTranscription(currentMemo.content?.toString() || "");
+    applyMemoToEditor(currentMemo);
   };
 
   const handleSave = async () => {

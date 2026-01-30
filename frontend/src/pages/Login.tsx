@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { setAuthToken } from "../api";
+import { getAuthError, setAuthError, setAuthToken, subscribeToAuthError } from "../api";
 
 type LoginProps = {
   onLogin: (token: string) => void;
@@ -8,17 +8,34 @@ type LoginProps = {
 
 export default function Login({ onLogin }: LoginProps) {
   const navigate = useNavigate();
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthErrorState] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    const existing = getAuthError();
+    if (existing) {
+      setAuthErrorState(existing);
+      setAuthError(null);
+    }
+    const unsubscribe = subscribeToAuthError((message) => {
+      if (message) {
+        setAuthErrorState(message);
+        setAuthError(null);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   const handleLogin = async () => {
-    setAuthError(null);
+    setAuthErrorState(null);
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
     if (!supabaseUrl || !supabaseAnonKey) {
-      setAuthError("Missing Supabase client config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      setAuthErrorState(
+        "Missing Supabase client config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY."
+      );
       return;
     }
     setIsSubmitting(true);
@@ -36,6 +53,7 @@ export default function Login({ onLogin }: LoginProps) {
         throw new Error(payload?.error_description || "Login failed.");
       }
       const payload = await response.json();
+      setAuthError(null);
       setAuthToken(payload.access_token);
       onLogin(payload.access_token);
       setEmail("");
@@ -43,7 +61,7 @@ export default function Login({ onLogin }: LoginProps) {
       navigate("/", { replace: true });
     } catch (loginErr) {
       console.error(loginErr);
-      setAuthError("Login failed. Check your credentials.");
+      setAuthErrorState("Login failed. Check your credentials.");
     } finally {
       setIsSubmitting(false);
     }
