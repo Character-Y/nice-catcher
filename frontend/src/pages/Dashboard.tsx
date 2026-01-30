@@ -64,6 +64,23 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     setNewProjectName("");
   };
 
+  const releaseStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  };
+
+  const getOrCreateStream = async () => {
+    const stream = streamRef.current;
+    if (stream && stream.active) {
+      return stream;
+    }
+    const nextStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = nextStream;
+    return nextStream;
+  };
+
   const applyMemoToEditor = (memo: Memo) => {
     setCurrentMemo(memo);
     setTranscription(memo.content?.toString() || "");
@@ -130,8 +147,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      const stream = await getOrCreateStream();
       startMeter(stream);
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
@@ -162,7 +178,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
           setError("Failed to upload audio. Please try again.");
           setState("idle");
         }
-        stream.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current = null;
       };
       mediaRecorderRef.current = recorder;
       recorder.start();
@@ -239,7 +255,16 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     setTranscription("");
     setMemos([]);
     setProjects([]);
+    stopMeter();
+    releaseStream();
   };
+
+  useEffect(() => {
+    return () => {
+      stopMeter();
+      releaseStream();
+    };
+  }, []);
 
   return (
     <div className="app">
