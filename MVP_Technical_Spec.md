@@ -104,6 +104,14 @@ Base URL: `/api/v1`
   1. Filter results by `user_id`.
   2. **Crucial**: Convert stored `audio_path` to short-lived **Signed URL** (e.g., 1 hour validity) via Supabase Storage API. Return this Signed URL as `audio_url`.
 
+**DELETE** `/memos/{memo_id}`
+- **Purpose**: Permanently delete a memo and its audio file.
+- **Process**: 
+  1. Verify ownership (`user_id`).
+  2. Delete DB record.
+  3. (Optional for MVP) Delete audio file from Storage.
+- **Response**: 204 No Content.
+
 ### 4.3 Static Files & SPA Serving
 - **GET** `/static/*`: Serve static assets (JS/CSS) from `/app/static`.
 - **GET** `/{full_path}`: Catch-all route. Returns `index.html` to support React Router (SPA).
@@ -117,9 +125,9 @@ Base URL: `/api/v1`
   - **State**: `Idle` | `Recording` | `Review` | `Saving`.
   - **Components**:
     - `ActionBubble`: Central recording button. **Click-to-start, Click-to-stop**. Visualizes audio levels.
-    - `TranscriptionEditor`: Text area. Includes "Save" (PATCH /memos) and "Discard" actions.
+    - `TranscriptionEditor`: Text area. Includes "Save" (PATCH), "Discard Changes" (Revert), and "Delete Memo" (Hard Delete) actions.
     - `ProjectSelector`: Dropdown/Create New Project.
-    - `Timeline`: List of memo cards. **Must include Audio Player** (play `audio_url` from API) and text preview.
+    - `Timeline`: List of memo cards. **Must include Audio Player** (play `audio_url` from API) and text preview. Includes **Delete Action** (trash icon with confirmation).
 
 ### 5.2 Key Libraries
 - `axios`: API requests.
