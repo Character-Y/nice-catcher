@@ -111,7 +111,7 @@ Base URL: `/api/v1`
 ## 5. Frontend Specifications (React)
 
 ### 5.1 Route Structure
-- `/login`: **Auth Page**. (Email/Password or OAuth).
+- `/login`: **Auth Page**. Supports **Login** (Email/Password) and **Sign Up** (Create Account).
 - `/`: **Dashboard & Recorder** (Protected Route).
   - **Auth Logic**: Check for Session -> Redirect to Login if invalid.
   - **State**: `Idle` | `Recording` | `Review` | `Saving`.
