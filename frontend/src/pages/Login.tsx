@@ -54,7 +54,9 @@ export default function Login({ onLogin }: LoginProps) {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload?.error_description || "Login failed.");
+        const description =
+          payload?.error_description || payload?.message || payload?.error || "Login failed.";
+        throw new Error(description);
       }
       const payload = await response.json();
       setAuthError(null);
@@ -65,7 +67,17 @@ export default function Login({ onLogin }: LoginProps) {
       navigate("/", { replace: true });
     } catch (loginErr) {
       console.error(loginErr);
-      setAuthErrorState("Login failed. Check your credentials.");
+      const message =
+        loginErr instanceof Error && loginErr.message
+          ? loginErr.message
+          : "Login failed. Check your credentials.";
+      if (message.toLowerCase().includes("invalid login credentials")) {
+        setAuthErrorState("Invalid email or password.");
+      } else if (message.toLowerCase().includes("email not confirmed")) {
+        setAuthErrorState("Email not confirmed. Please check your inbox.");
+      } else {
+        setAuthErrorState(message);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -106,7 +118,9 @@ export default function Login({ onLogin }: LoginProps) {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload?.error_description || "Sign up failed.");
+        const description =
+          payload?.error_description || payload?.message || payload?.error || "Sign up failed.";
+        throw new Error(description);
       }
       const payload = await response.json();
       const accessToken = payload?.access_token ?? payload?.session?.access_token ?? null;
@@ -126,7 +140,19 @@ export default function Login({ onLogin }: LoginProps) {
       setMode("login");
     } catch (signupErr) {
       console.error(signupErr);
-      setAuthErrorState("Sign up failed. Please check your email and try again.");
+      const message =
+        signupErr instanceof Error && signupErr.message
+          ? signupErr.message
+          : "Sign up failed. Please check your email and try again.";
+      if (message.toLowerCase().includes("already registered")) {
+        setAuthErrorState("Email already registered. Try signing in instead.");
+      } else if (message.toLowerCase().includes("invalid email")) {
+        setAuthErrorState("Email format is invalid.");
+      } else if (message.toLowerCase().includes("password")) {
+        setAuthErrorState("Password does not meet requirements.");
+      } else {
+        setAuthErrorState(message);
+      }
     } finally {
       setIsSubmitting(false);
     }
