@@ -4,7 +4,7 @@ import ActionBubble from "../components/ActionBubble";
 import ProjectSelector from "../components/ProjectSelector";
 import Timeline from "../components/Timeline";
 import TranscriptionEditor from "../components/TranscriptionEditor";
-import { captureAudio, listMemos, listProjects, updateMemo } from "../api";
+import { captureAudio, deleteMemo, listMemos, listProjects, updateMemo } from "../api";
 import type { Memo, Project } from "../api";
 
 type RecorderState = "idle" | "recording" | "saving" | "review";
@@ -24,6 +24,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   const [meterLevel, setMeterLevel] = useState(0);
+  const [currentPlayingId, setCurrentPlayingId] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -32,6 +33,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const rafRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const fetchMemos = useCallback(async () => {
     try {
@@ -92,6 +94,15 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     } else {
       resetProjectInputs();
     }
+  };
+
+  const stopAudioPlayback = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    setCurrentPlayingId(null);
   };
 
   const stopMeter = () => {
@@ -250,6 +261,44 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     }
   };
 
+  const handleDelete = async (memo: Memo) => {
+    if (!window.confirm("Are you sure? This cannot be undone.")) {
+      return;
+    }
+    setError(null);
+    setMemos((prev) => prev.filter((item) => item.id !== memo.id));
+    if (currentPlayingId === memo.id) {
+      stopAudioPlayback();
+    }
+    if (currentMemo?.id === memo.id) {
+      setCurrentMemo(null);
+      setTranscription("");
+      setState("idle");
+    }
+    try {
+      await deleteMemo(memo.id);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to delete memo. Refreshing list.");
+      await fetchMemos();
+    }
+  };
+
+  const handleAudioPlay = (memoId: string, element: HTMLAudioElement) => {
+    if (currentPlayingId && currentPlayingId !== memoId && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    audioRef.current = element;
+    setCurrentPlayingId(memoId);
+  };
+
+  const handleAudioStop = (memoId: string) => {
+    if (currentPlayingId === memoId) {
+      stopAudioPlayback();
+    }
+  };
+
   const handleLogout = () => {
     onSignOut();
     setCurrentMemo(null);
@@ -258,6 +307,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     setProjects([]);
     stopMeter();
     releaseStream();
+    stopAudioPlayback();
   };
 
   useEffect(() => {
@@ -348,6 +398,15 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
             </button>
             <button
               type="button"
+              className="danger-button"
+              onClick={() => currentMemo && handleDelete(currentMemo)}
+              disabled={!currentMemo || state === "saving"}
+            >
+              <Trash2 size={18} />
+              Delete memo
+            </button>
+            <button
+              type="button"
               className="primary-button"
               onClick={handleSave}
               disabled={!currentMemo || state === "saving"}
@@ -368,6 +427,9 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
           <Timeline
             memos={memos}
             onSelect={handleSelectMemo}
+            onDelete={handleDelete}
+            onAudioPlay={handleAudioPlay}
+            onAudioStop={handleAudioStop}
             projectNameById={Object.fromEntries(projects.map((p) => [p.id, p.name]))}
           />
         </section>

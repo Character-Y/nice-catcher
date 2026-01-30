@@ -72,7 +72,7 @@ Base URL: `/api/v1`
   1. **Auth**: Extract `user_id` from Bearer Token.
   2. Upload `file` to Supabase Storage.
   3. Create `memos` entry with `user_id`, `project_id=NULL`, `status="pending"`, and empty `attachments`.
-  4. **Async Task**: Call Transcription API -> Update `memos.content` -> Update `status="review_needed"`.
+  4. **Async Task**: Call Transcription API -> Update `memos.content` -> Update `status="review_needed"`. (Ignore if memo deleted).
   5. Generate **Signed URL** for the uploaded audio.
   6. Return `memo_id` and the Signed URL (as `audio_url`).
 - **Response**:
@@ -89,7 +89,7 @@ Base URL: `/api/v1`
 **POST** `/memos/{memo_id}/media`
 - **Purpose**: Upload Images/Videos.
 - **Request**: `multipart/form-data` -> `files`.
-- **Process**: Upload to Storage -> Append `{"type": "image", ...}` to attachments.
+- **Process**: Upload to Storage -> Append `{"type": "image", "path": "user_id/memo_id/file.ext", ...}` (No bucket name in path).
 
 **POST** `/memos/{memo_id}/location`
 - **Purpose**: Set or Update geolocation.
@@ -118,7 +118,7 @@ Base URL: `/api/v1`
 - **Process**: 
   1. Verify ownership (`user_id`).
   2. Delete DB record.
-  3. (Optional for MVP) Delete audio file from Storage.
+  3. **Required**: Trigger Background Task (using **FastAPI `BackgroundTasks`**) to clean up storage.
 - **Response**: 204 No Content.
 
 ### 4.3 Static Files & SPA Serving

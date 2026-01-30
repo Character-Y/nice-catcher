@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+import logging
 import requests
 from supabase import Client, create_client
 
@@ -32,6 +33,7 @@ AI_BUILDER_MODEL = os.getenv("AI_BUILDER_MODEL", "whisper-1")
 SIGNED_URL_TTL_SECONDS = int(os.getenv("SIGNED_URL_TTL_SECONDS", "3600"))
 
 _supabase: Optional[Client] = None
+logger = logging.getLogger("nice_catcher")
 
 
 class Memo(BaseModel):
@@ -171,6 +173,18 @@ def create_signed_url(audio_path: str) -> str:
     return signed_url
 
 
+def delete_storage_paths(paths: list[str]) -> None:
+    if not paths:
+        return
+    try:
+        supabase = get_supabase()
+        response = supabase.storage.from_(SUPABASE_BUCKET).remove(paths)
+        if getattr(response, "error", None):
+            logger.warning("Failed to delete storage paths: %s", response.error)
+    except Exception as exc:  # best effort cleanup
+        logger.warning("Storage cleanup failed: %s", exc)
+
+
 def insert_memo_supabase(payload: dict[str, Any]) -> dict[str, Any]:
     supabase = get_supabase()
     response = supabase.table("memos").insert(payload).execute()
@@ -212,6 +226,20 @@ def list_projects_supabase(user_id: str) -> list[dict[str, Any]]:
     supabase = get_supabase()
     response = supabase.table("projects").select("*").eq("user_id", user_id).execute()
     return response.data or []
+
+
+def get_memo_supabase(user_id: str, memo_id: str) -> Optional[dict[str, Any]]:
+    supabase = get_supabase()
+    response = (
+        supabase.table("memos")
+        .select("*")
+        .eq("id", memo_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if getattr(response, "data", None):
+        return response.data[0]
+    return None
 
 
 def create_project_if_needed(user_id: str, name: Optional[str]) -> Optional[str]:
@@ -413,6 +441,56 @@ def list_projects(user_id: str = Depends(get_current_user_id)) -> list[Project]:
         return [Project(**project) for project in projects if project.get("user_id") == user_id]
     projects = list_projects_supabase(user_id)
     return [Project(**project) for project in projects]
+
+
+@app.delete(f"{API_PREFIX}/memos" + "/{memo_id}")
+def delete_memo(
+    memo_id: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
+    files_to_delete: list[str] = []
+
+    if USE_MOCK:
+        memos = load_memos()
+        memo = next((item for item in memos if item.get("id") == memo_id), None)
+        if not memo or memo.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail="memo not found")
+        audio_path = memo.get("audio_path")
+        if audio_path:
+            files_to_delete.append(audio_path)
+        attachments = memo.get("attachments") or []
+        for item in attachments:
+            path = item.get("path") if isinstance(item, dict) else None
+            if path:
+                files_to_delete.append(path)
+        memos = [item for item in memos if item.get("id") != memo_id]
+        save_memos(memos)
+        background_tasks.add_task(delete_storage_paths, files_to_delete)
+        return Response(status_code=204)
+
+    memo = get_memo_supabase(user_id, memo_id)
+    if not memo:
+        raise HTTPException(status_code=404, detail="memo not found")
+
+    audio_path = memo.get("audio_path")
+    if audio_path:
+        files_to_delete.append(audio_path)
+    attachments = memo.get("attachments") or []
+    for item in attachments:
+        path = item.get("path") if isinstance(item, dict) else None
+        if path:
+            files_to_delete.append(path)
+
+    supabase = get_supabase()
+    response = supabase.table("memos").delete().eq("id", memo_id).eq("user_id", user_id).execute()
+    if getattr(response, "error", None):
+        raise HTTPException(status_code=500, detail="Failed to delete memo")
+    if not getattr(response, "data", None):
+        raise HTTPException(status_code=404, detail="memo not found")
+
+    background_tasks.add_task(delete_storage_paths, files_to_delete)
+    return Response(status_code=204)
 
 
 @app.get("/", response_class=HTMLResponse)
