@@ -3,9 +3,10 @@ import type { Memo } from "../api";
 type TimelineProps = {
   memos: Memo[];
   onSelect: (memo: Memo) => void;
+  projectNameById?: Record<string, string>;
 };
 
-export default function Timeline({ memos, onSelect }: TimelineProps) {
+export default function Timeline({ memos, onSelect, projectNameById }: TimelineProps) {
   return (
     <div className="panel">
       <div className="timeline-header">
@@ -30,8 +31,15 @@ export default function Timeline({ memos, onSelect }: TimelineProps) {
             <p className="timeline-content">
               {memo.content?.trim() || "No transcription yet."}
             </p>
+            {memo.audio_url && (
+              <audio controls preload="none" className="timeline-audio">
+                <source src={memo.audio_url} />
+              </audio>
+            )}
             <div className="timeline-project">
-              {memo.project_id ? `Project: ${memo.project_id}` : "Inbox"}
+              {memo.project_id
+                ? `Project: ${projectNameById?.[memo.project_id] ?? memo.project_id}`
+                : "Inbox"}
             </div>
           </button>
         ))}

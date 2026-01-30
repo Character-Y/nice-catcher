@@ -1,5 +1,6 @@
--- Nice Catcher MVP schema
--- Run this in Supabase SQL Editor
+-- Rebuild schema for multitenant + auth (drops old data)
+drop table if exists public.memos;
+drop table if exists public.projects;
 
 create extension if not exists pgcrypto;
 

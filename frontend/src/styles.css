@@ -59,6 +59,68 @@ h1 {
   font-size: 14px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ghost-button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: inherit;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.auth-page {
+  max-width: 640px;
+}
+
+.auth-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(8, 12, 24, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.auth-tab {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.auth-tab.active {
+  background: rgba(121, 167, 255, 0.25);
+  color: #f4f6fb;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.field input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: inherit;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
 .dot {
   width: 10px;
   height: 10px;
@@ -113,6 +175,27 @@ h1 {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+}
+
+.bubble-shell {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.bubble-meter {
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(121, 167, 255, 0.35), rgba(121, 167, 255, 0));
+  filter: blur(2px);
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.bubble-meter.recording {
+  background: radial-gradient(circle, rgba(255, 99, 132, 0.45), rgba(255, 99, 132, 0));
 }
 
 .bubble-button {
@@ -196,6 +279,31 @@ h1 {
   cursor: not-allowed;
 }
 
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(8, 12, 24, 0.5);
+  color: #f4f6fb;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .error-card,
 .loading-card {
   display: flex;
@@ -205,6 +313,31 @@ h1 {
   border-radius: 12px;
   background: rgba(255, 99, 132, 0.15);
   border: 1px solid rgba(255, 99, 132, 0.4);
+}
+
+.success-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(77, 212, 172, 0.15);
+  border: 1px solid rgba(77, 212, 172, 0.4);
+}
+
+.info-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(121, 167, 255, 0.12);
+  border: 1px solid rgba(121, 167, 255, 0.4);
+}
+
+.info-card-text {
+  font-size: 13px;
 }
 
 .loading-card {
@@ -257,6 +390,11 @@ h1 {
   cursor: pointer;
 }
 
+.timeline-audio {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
 .timeline-card:hover {
   border-color: rgba(121, 167, 255, 0.6);
 }
@@ -295,6 +433,11 @@ h1 {
 .timeline-content {
   margin: 0 0 8px;
   font-size: 14px;
+}
+
+.timeline-audio {
+  width: 100%;
+  margin: 0 0 8px;
 }
 
 .timeline-project {
