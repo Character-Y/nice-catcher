@@ -180,8 +180,27 @@ export default function Login({ onLogin }: LoginProps) {
       if (identities && identities.length === 0) {
         setAuthErrorState("Email already registered. Try signing in instead.");
       } else {
-        setConfirmHint("Email created but not confirmed yet.");
-        setAuthSuccess("Check your inbox for a confirmation email, or resend it.");
+        const loginResponse = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+          method: "POST",
+          headers: {
+            apikey: supabaseAnonKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email, password }),
+        });
+        if (loginResponse.ok) {
+          setAuthErrorState("Email already registered. Please sign in instead.");
+        } else {
+          const loginPayload = await loginResponse.json().catch(() => ({}));
+          const parsed = parseAuthError(loginPayload, "Login failed.");
+          const normalized = `${parsed.code}|${parsed.description}`.toLowerCase();
+          if (normalized.includes("email_not_confirmed") || normalized.includes("email not confirmed")) {
+            setConfirmHint("Email already registered but not confirmed.");
+            setAuthSuccess("Check your inbox for a confirmation email, or resend it.");
+          } else {
+            setAuthErrorState("Email already registered. Please sign in instead.");
+          }
+        }
       }
       setMode("login");
       setPassword("");
