@@ -68,11 +68,10 @@ Base URL: `/api/v1`
 - **Purpose**: One-shot upload for immediate safety.
 - **Request**: `multipart/form-data`
   - `file`: Audio file (Blob)
-  - `attachments`: string (Optional JSON string, e.g. `[{"type":"location", "lat":...}]`)
 - **Process**:
   1. **Auth**: Extract `user_id` from Bearer Token.
   2. Upload `file` to Supabase Storage.
-  3. Create `memos` entry with `user_id`, `project_id=NULL` (Inbox), `status="pending"`, and `attachments`.
+  3. Create `memos` entry with `user_id`, `project_id=NULL`, `status="pending"`, and empty `attachments`.
   4. **Async Task**: Call Transcription API -> Update `memos.content` -> Update `status="review_needed"`.
   5. Generate **Signed URL** for the uploaded audio.
   6. Return `memo_id` and the Signed URL (as `audio_url`).
@@ -87,12 +86,22 @@ Base URL: `/api/v1`
   ```
 
 ### 4.2 Memos Management
+**POST** `/memos/{memo_id}/media`
+- **Purpose**: Upload Images/Videos.
+- **Request**: `multipart/form-data` -> `files`.
+- **Process**: Upload to Storage -> Append `{"type": "image", ...}` to attachments.
+
+**POST** `/memos/{memo_id}/location`
+- **Purpose**: Set or Update geolocation.
+- **Request**: JSON -> `{"lat": ..., "lng": ...}`.
+- **Process**: Append/Update `{"type": "location", ...}` in attachments.
+
 **PATCH** `/memos/{memo_id}`
-- **Purpose**: User reviews and sorts memo into a project.
+- **Purpose**: User reviews, categorizes, and updates text.
 - **Request**: JSON
   - `content`: string (Edited text)
   - `project_id`: uuid (Target project)
-  - `new_project_name`: string (Optional: Create new project if provided)
+  - `new_project_name`: string (Optional)
   - `status`: "done"
 - **Process**: Ensure `memo_id` belongs to `current_user`.
 - **Response**: Updated Memo object.
@@ -125,7 +134,11 @@ Base URL: `/api/v1`
   - **State**: `Idle` | `Recording` | `Review` | `Saving`.
   - **Components**:
     - `ActionBubble`: Central recording button. **Click-to-start, Click-to-stop**. Visualizes audio levels.
-    - `TranscriptionEditor`: Text area. Includes "Save" (PATCH), "Discard Changes" (Revert), and "Delete Memo" (Hard Delete) actions.
+    - `TranscriptionEditor`: Text area. 
+      - Actions: "Save", "Discard Changes", "Delete Memo".
+      - **Assets**: 
+        - "Add Media" (calls `/media` API).
+        - "Add Location" (calls `/location` API).
     - `ProjectSelector`: Dropdown/Create New Project.
     - `Timeline`: List of memo cards. **Must include Audio Player** (play `audio_url` from API) and text preview. Includes **Delete Action** (trash icon with confirmation).
 
