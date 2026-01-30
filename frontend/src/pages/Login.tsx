@@ -161,6 +161,7 @@ export default function Login({ onLogin }: LoginProps) {
       }
       const payload = await response.json();
       const accessToken = payload?.access_token ?? payload?.session?.access_token ?? null;
+      const identities = Array.isArray(payload?.user?.identities) ? payload.user.identities : null;
       if (accessToken) {
         setAuthError(null);
         setAuthToken(accessToken);
@@ -171,10 +172,15 @@ export default function Login({ onLogin }: LoginProps) {
         navigate("/", { replace: true });
         return;
       }
-      setAuthSuccess("Check your email to confirm your account, then sign in.");
+      if (identities && identities.length === 0) {
+        setAuthErrorState("Email already registered. Try signing in instead.");
+        setMode("login");
+      } else {
+        setAuthSuccess("Check your email to confirm your account, then sign in.");
+        setMode("login");
+      }
       setPassword("");
       setConfirmPassword("");
-      setMode("login");
     } catch (signupErr) {
       console.error(signupErr);
       const message =
