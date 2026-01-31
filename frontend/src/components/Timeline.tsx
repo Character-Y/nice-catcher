@@ -84,7 +84,7 @@ export default function Timeline({
             {memo.audio_url && (
               <audio
                 controls
-                preload="none"
+                preload="metadata"
                 className="timeline-audio"
                 onPlay={(event) => onAudioPlay(memo.id, event.currentTarget)}
                 onPause={() => onAudioStop(memo.id)}
