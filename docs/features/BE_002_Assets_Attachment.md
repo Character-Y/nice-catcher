@@ -10,16 +10,20 @@
 
 ### Logic:
 1.  **Ownership**: Verify `memo.user_id == current_user`.
-2.  **Storage Naming**:
+2.  **Validation (MVP Limits)**:
+    -   **Max Files**: 5 per request.
+    -   **Max Size**: 50MB per file.
+    -   **Allowed Types (Whitelist)**: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`, `video/mp4`, `video/webm`, `video/quicktime`.
+3.  **Storage Naming**:
     -   Generate a unique path: `{user_id}/{memo_id}/{uuid}.{ext}`.
     -   **STRICT RULE**: The `path` string stored in DB MUST NOT include the bucket name (`memos-assets`).
-    -   Upload to Supabase Bucket `memos-assets`.
-3.  **DB Update**:
+    -   **Upload**: Use Supabase Client with **Service Role Key** (bypasses RLS).
+4.  **DB Update**:
     -   Read current `attachments` (JSONB).
-    -   Append new item: `{"type": "image", "path": "user_1/.../img.jpg"}`.
-    -   **CRITICAL**: Store the **PATH**, not the URL.
+    -   Append new item: `{"type": "image", "path": "user_id/.../img.jpg", "mime": "...", "created_at": ...}`.
+    -   **Concurrency Note**: Not atomic. Race condition possible if multiple uploads happen instantly. Acceptable for MVP.
     -   Save to DB.
-4.  **Response**: Return updated Memo object (with Signed URLs generated on the fly).
+5.  **Response**: Return updated Memo object. **MUST** transform all paths (including new ones) to Signed URLs before returning.
 
 ## 2. Location Endpoint
 - **Method**: `POST`
@@ -34,7 +38,7 @@
 
 ## 3. The "Signed URL" Rule (Crucial for GET)
 
-When serving data in `GET /memos` or any response returning a Memo:
+When serving data in `GET /memos`, `/capture`, `/media`, or ANY response returning a Memo:
 
 **You MUST Transform Paths to Signed URLs.**
 
@@ -47,7 +51,7 @@ memo_dict["audio_url"] = supabase.storage.sign_url(db_memo.audio_path, expiresIn
 
 # 2. Transform Attachments
 for item in memo_dict["attachments"]:
-    if item["type"] == "image":
+    if item["type"] in ["image", "video"]:
         # Dynamic Signing
         item["url"] = supabase.storage.sign_url(item["path"], expiresIn=3600)
         # Remove "path" from response to avoid confusion
