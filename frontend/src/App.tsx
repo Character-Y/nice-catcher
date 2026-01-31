@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { getAuthToken, setAuthError, setAuthToken, subscribeToAuthChange } from "./api";
+import { clearAuthTokens, getAuthToken, setAuthError, subscribeToAuthChange } from "./api";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
@@ -28,7 +28,7 @@ export default function App() {
 
   const handleSignOut = () => {
     setAuthError(null);
-    setAuthToken(null);
+    clearAuthTokens();
     setToken(null);
   };
 

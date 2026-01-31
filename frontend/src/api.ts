@@ -53,12 +53,17 @@ const api = axios.create({
 });
 
 const TOKEN_STORAGE_KEY = "nc_token";
+const REFRESH_TOKEN_STORAGE_KEY = "nc_refresh_token";
 const AUTH_EVENT = "nc:auth-change";
 const AUTH_ERROR_KEY = "nc_auth_error";
 const AUTH_ERROR_EVENT = "nc:auth-error";
 
 export function getAuthToken() {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function getRefreshToken() {
+  return localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
 }
 
 export function setAuthToken(token: string | null) {
@@ -68,6 +73,28 @@ export function setAuthToken(token: string | null) {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
   window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: token }));
+}
+
+/** Store both access and refresh token (e.g. after login). Clears refresh if not provided. */
+export function setAuthTokens(accessToken: string | null, refreshToken: string | null = null) {
+  if (accessToken) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
+  } else {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+  if (refreshToken) {
+    localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
+  } else {
+    localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  }
+  window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: accessToken }));
+}
+
+/** Clear both access and refresh tokens (e.g. on logout). */
+export function clearAuthTokens() {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: null }));
 }
 
 export function setAuthError(message: string | null) {
@@ -92,13 +119,45 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: {
+      apikey: supabaseAnonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => null);
+  const access = payload?.access_token ?? null;
+  const refresh = payload?.refresh_token ?? refreshToken;
+  if (access) {
+    setAuthTokens(access, refresh);
+    return access;
+  }
+  return null;
+}
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const status = error?.response?.status;
-    if (status === 401) {
+    const config = error?.config;
+    if (status === 401 && config && !config._retriedAfterRefresh) {
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        config._retriedAfterRefresh = true;
+        if (config.headers) config.headers.Authorization = `Bearer ${newToken}`;
+        return api.request(config);
+      }
       setAuthError("Session expired. Please sign in again.");
-      setAuthToken(null);
+      clearAuthTokens();
     }
     return Promise.reject(error);
   }

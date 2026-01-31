@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAuthError, setAuthError, setAuthToken, subscribeToAuthError } from "../api";
+import { getAuthError, setAuthError, setAuthTokens, subscribeToAuthError } from "../api";
 
 type LoginProps = {
   onLogin: (token: string) => void;
@@ -79,8 +79,10 @@ export default function Login({ onLogin }: LoginProps) {
       }
       const payload = await response.json();
       setAuthError(null);
-      setAuthToken(payload.access_token);
-      onLogin(payload.access_token);
+      const access = payload.access_token;
+      const refresh = payload.refresh_token ?? null;
+      setAuthTokens(access, refresh);
+      onLogin(access);
       setEmail("");
       setPassword("");
       navigate("/", { replace: true });
@@ -169,7 +171,8 @@ export default function Login({ onLogin }: LoginProps) {
       const identities = Array.isArray(payload?.user?.identities) ? payload.user.identities : null;
       if (accessToken) {
         setAuthError(null);
-        setAuthToken(accessToken);
+        const refreshToken = payload?.refresh_token ?? null;
+        setAuthTokens(accessToken, refreshToken);
         onLogin(accessToken);
         setEmail("");
         setPassword("");
