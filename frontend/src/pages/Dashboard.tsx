@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Save, Trash2 } from "lucide-react";
+import { Loader2, MapPin, Save, Trash2, Upload } from "lucide-react";
 import ActionBubble from "../components/ActionBubble";
 import ProjectSelector from "../components/ProjectSelector";
 import Timeline from "../components/Timeline";
 import TranscriptionEditor from "../components/TranscriptionEditor";
-import { captureAudio, deleteMemo, listMemos, listProjects, updateMemo } from "../api";
-import type { Memo, Project } from "../api";
+import {
+  addMemoLocation,
+  captureAudio,
+  deleteMemo,
+  listMemos,
+  listProjects,
+  updateMemo,
+  uploadMemoMedia,
+} from "../api";
+import type { Attachment, Memo, Project } from "../api";
 
 type RecorderState = "idle" | "recording" | "saving" | "review";
 
@@ -25,6 +33,8 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
   const [newProjectName, setNewProjectName] = useState("");
   const [meterLevel, setMeterLevel] = useState(0);
   const [currentPlayingId, setCurrentPlayingId] = useState<string | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [isAddingLocation, setIsAddingLocation] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -34,6 +44,7 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchMemos = useCallback(async () => {
     try {
@@ -94,6 +105,20 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     } else {
       resetProjectInputs();
     }
+  };
+
+  const updateCurrentMemoFromList = (memoId: string, list: Memo[]) => {
+    const latest = list.find((memo) => memo.id === memoId);
+    if (latest) {
+      applyMemoToEditor(latest);
+    }
+  };
+
+  const getAttachments = (memo: Memo | null): Attachment[] => {
+    if (!memo?.attachments) {
+      return [];
+    }
+    return memo.attachments.filter((item) => item && typeof item === "object") as Attachment[];
   };
 
   const stopAudioPlayback = () => {
@@ -284,6 +309,120 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
     }
   };
 
+  const handleAddPhotoClick = () => {
+    if (!currentMemo) {
+      setError("Select a memo before adding attachments.");
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (!currentMemo || files.length === 0) {
+      return;
+    }
+    setError(null);
+    setIsUploadingMedia(true);
+    try {
+      await uploadMemoMedia(currentMemo.id, files);
+      const data = await listMemos();
+      setMemos(data.sort((a, b) => b.created_at.localeCompare(a.created_at)));
+      updateCurrentMemoFromList(currentMemo.id, data);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to upload media. Refreshing list.");
+      await fetchMemos();
+    } finally {
+      setIsUploadingMedia(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleAddLocation = () => {
+    if (!currentMemo) {
+      setError("Select a memo before adding attachments.");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported in this browser.");
+      return;
+    }
+    setError(null);
+    setIsAddingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          await addMemoLocation(currentMemo.id, {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+          const data = await listMemos();
+          setMemos(data.sort((a, b) => b.created_at.localeCompare(a.created_at)));
+          updateCurrentMemoFromList(currentMemo.id, data);
+        } catch (err) {
+          console.error(err);
+          setError("Failed to tag location. Refreshing list.");
+          await fetchMemos();
+        } finally {
+          setIsAddingLocation(false);
+        }
+      },
+      () => {
+        setIsAddingLocation(false);
+        setError("Could not get location.");
+      }
+    );
+  };
+
+  const renderEditorAttachments = (memo: Memo | null) => {
+    if (!memo) {
+      return null;
+    }
+    const attachments = getAttachments(memo);
+    const images = attachments.filter((item) => item.type === "image") as Array<{
+      type: "image";
+      url: string;
+    }>;
+    const locations = attachments.filter((item) => item.type === "location") as Array<{
+      type: "location";
+      lat: number;
+      lng: number;
+    }>;
+    if (images.length === 0 && locations.length === 0) {
+      return null;
+    }
+    return (
+      <div className="attachment-list">
+        {images.length > 0 && (
+          <div className="attachment-grid">
+            {images.map((item, index) => (
+              <img
+                key={`${item.url}-${index}`}
+                src={item.url}
+                alt="Attachment"
+                className="attachment-image"
+                loading="lazy"
+              />
+            ))}
+          </div>
+        )}
+        {locations.length > 0 && (
+          <div className="attachment-chips">
+            {locations.map((item, index) => (
+              <span key={`${item.lat}-${item.lng}-${index}`} className="location-chip">
+                <MapPin size={14} />
+                Location: {item.lat.toFixed(4)}, {item.lng.toFixed(4)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const handleAudioPlay = (memoId: string, element: HTMLAudioElement) => {
     if (currentPlayingId && currentPlayingId !== memoId && audioRef.current) {
       audioRef.current.pause();
@@ -376,6 +515,38 @@ export default function Dashboard({ onSignOut }: DashboardProps) {
             onChange={setTranscription}
             disabled={state === "saving"}
           />
+          <div className="panel">
+            <h2 className="panel-title">Add Attachment</h2>
+            <div className="attachment-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={handleAddPhotoClick}
+                disabled={!currentMemo || isUploadingMedia || state === "saving"}
+              >
+                <Upload size={18} />
+                {isUploadingMedia ? "Uploading..." : "Add Photo"}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={handleAddLocation}
+                disabled={!currentMemo || isAddingLocation || state === "saving"}
+              >
+                <MapPin size={18} />
+                {isAddingLocation ? "Tagging..." : "Tag Location"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={handleFilesSelected}
+              />
+            </div>
+            {renderEditorAttachments(currentMemo)}
+          </div>
           <ProjectSelector
             mode={projectMode}
             projects={projects}
