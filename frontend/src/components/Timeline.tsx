@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import type { Memo } from "../api";
+import type { Attachment, Memo } from "../api";
 
 type TimelineProps = {
   memos: Memo[];
@@ -18,6 +18,45 @@ export default function Timeline({
   onAudioStop,
   projectNameById,
 }: TimelineProps) {
+  const renderAttachments = (attachments: Attachment[]) => {
+    if (!attachments?.length) {
+      return null;
+    }
+    const images = attachments.filter(
+      (item) => item.type === "image" && "url" in item
+    ) as Array<{ type: "image"; url: string }>;
+    const locations = attachments.filter(
+      (item) => item.type === "location" && "lat" in item && "lng" in item
+    ) as Array<{ type: "location"; lat: number; lng: number }>;
+
+    return (
+      <div className="timeline-attachments">
+        {images.length > 0 && (
+          <div className="attachment-grid">
+            {images.map((item, index) => (
+              <img
+                key={`${item.url}-${index}`}
+                src={item.url}
+                alt="Attachment"
+                className="attachment-image"
+                loading="lazy"
+              />
+            ))}
+          </div>
+        )}
+        {locations.length > 0 && (
+          <div className="attachment-chips">
+            {locations.map((item, index) => (
+              <span key={`${item.lat}-${item.lng}-${index}`} className="location-chip">
+                Location: {item.lat.toFixed(4)}, {item.lng.toFixed(4)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="panel">
       <div className="timeline-header">
@@ -59,6 +98,7 @@ export default function Timeline({
                 ? `Project: ${projectNameById?.[memo.project_id] ?? memo.project_id}`
                 : "Inbox"}
             </div>
+            {renderAttachments(memo.attachments)}
             </button>
             <button
               type="button"

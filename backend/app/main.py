@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import mimetypes
+import time
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,11 +28,24 @@ INDEX_FILE = STATIC_DIR / "index.html"
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "memos-audio")
+MEMOS_ASSETS_BUCKET = os.getenv("MEMOS_ASSETS_BUCKET", "memos-assets")
 AI_BUILDER_TOKEN = os.getenv("AI_BUILDER_TOKEN")
 AI_BUILDER_BASE_URL = os.getenv("AI_BUILDER_BASE_URL", "https://space.ai-builders.com")
 AI_BUILDER_FILE_FIELD = os.getenv("AI_BUILDER_FILE_FIELD", "audio_file")
 AI_BUILDER_MODEL = os.getenv("AI_BUILDER_MODEL", "whisper-1")
 SIGNED_URL_TTL_SECONDS = int(os.getenv("SIGNED_URL_TTL_SECONDS", "3600"))
+MAX_MEDIA_FILES = 5
+MAX_MEDIA_SIZE_BYTES = 50 * 1024 * 1024
+ALLOWED_MEDIA_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/heic",
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+}
 
 _supabase: Optional[Client] = None
 logger = logging.getLogger("nice_catcher")
@@ -146,22 +161,22 @@ def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
     return user_id
 
 
-def upload_to_supabase(audio_path: str, content_type: str, file_bytes: bytes) -> str:
+def upload_to_supabase(bucket: str, object_path: str, content_type: str, file_bytes: bytes) -> str:
     supabase = get_supabase()
-    response = supabase.storage.from_(SUPABASE_BUCKET).upload(
-        audio_path,
+    response = supabase.storage.from_(bucket).upload(
+        object_path,
         file_bytes,
         {"content-type": content_type},
     )
     if getattr(response, "error", None):
         raise HTTPException(status_code=500, detail="Failed to upload audio to Supabase")
-    return audio_path
+    return object_path
 
 
-def create_signed_url(audio_path: str) -> str:
+def create_signed_url(bucket: str, object_path: str) -> str:
     supabase = get_supabase()
-    response = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(
-        audio_path,
+    response = supabase.storage.from_(bucket).create_signed_url(
+        object_path,
         SIGNED_URL_TTL_SECONDS,
     )
     if isinstance(response, dict):
@@ -173,16 +188,45 @@ def create_signed_url(audio_path: str) -> str:
     return signed_url
 
 
-def delete_storage_paths(paths: list[str]) -> None:
+def delete_storage_paths(bucket: str, paths: list[str]) -> None:
     if not paths:
         return
     try:
         supabase = get_supabase()
-        response = supabase.storage.from_(SUPABASE_BUCKET).remove(paths)
+        response = supabase.storage.from_(bucket).remove(paths)
         if getattr(response, "error", None):
             logger.warning("Failed to delete storage paths: %s", response.error)
     except Exception as exc:  # best effort cleanup
         logger.warning("Storage cleanup failed: %s", exc)
+
+
+def sign_memo_for_response(memo: dict[str, Any]) -> dict[str, Any]:
+    memo_dict = dict(memo)
+    audio_path = memo_dict.get("audio_path")
+    if audio_path:
+        memo_dict["audio_url"] = create_signed_url(SUPABASE_BUCKET, audio_path)
+    attachments = memo_dict.get("attachments") or []
+    signed_attachments: list[dict[str, Any]] = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        entry = dict(item)
+        if entry.get("type") in {"image", "video"} and entry.get("path"):
+            entry["url"] = create_signed_url(MEMOS_ASSETS_BUCKET, entry["path"])
+            entry.pop("path", None)
+        signed_attachments.append(entry)
+    memo_dict["attachments"] = signed_attachments
+    return memo_dict
+
+
+def collect_attachment_paths(attachments: list[dict[str, Any]]) -> list[str]:
+    paths: list[str] = []
+    for item in attachments:
+        if isinstance(item, dict):
+            path = item.get("path")
+            if path:
+                paths.append(path)
+    return paths
 
 
 def insert_memo_supabase(payload: dict[str, Any]) -> dict[str, Any]:
@@ -311,6 +355,27 @@ def find_memo(memos: list[dict[str, Any]], memo_id: str) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail="memo not found")
 
 
+def ensure_media_file_limits(files: list[UploadFile]) -> None:
+    if len(files) > MAX_MEDIA_FILES:
+        raise HTTPException(status_code=400, detail="Too many files")
+
+
+def validate_media_file(file: UploadFile, size_bytes: int) -> None:
+    content_type = file.content_type or ""
+    if content_type not in ALLOWED_MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported media type")
+    if size_bytes > MAX_MEDIA_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="File too large")
+
+
+def infer_extension(filename: str, content_type: str) -> str:
+    suffix = Path(filename).suffix
+    if suffix:
+        return suffix.lower()
+    guessed = mimetypes.guess_extension(content_type or "")
+    return guessed or ""
+
+
 app = FastAPI(title="Nice Catcher API", version="0.1.0")
 
 if STATIC_DIR.exists():
@@ -360,7 +425,12 @@ async def capture(
         stored_memo = memo_payload
     else:
         audio_path = f"{user_id}/{filename}"
-        memo_payload["audio_path"] = upload_to_supabase(audio_path, content_type, file_bytes)
+        memo_payload["audio_path"] = upload_to_supabase(
+            SUPABASE_BUCKET,
+            audio_path,
+            content_type,
+            file_bytes,
+        )
         stored_memo = insert_memo_supabase(memo_payload)
         transcription = call_transcription_api(filename, content_type, file_bytes)
         stored_memo = update_memo_supabase(
@@ -369,12 +439,11 @@ async def capture(
             {"content": transcription, "status": "review_needed"},
         )
 
-    audio_url = create_signed_url(stored_memo["audio_path"])
-    stored_memo["audio_url"] = audio_url
+    stored_memo = sign_memo_for_response(stored_memo)
     return {
         "id": memo_id,
         "status": stored_memo["status"],
-        "audio_url": audio_url,
+        "audio_url": stored_memo.get("audio_url"),
         "estimated_wait": "2s" if USE_MOCK else "pending",
         "memo": stored_memo,
     }
@@ -404,7 +473,7 @@ def update_memo(
         return Memo(**memo)
 
     memo = update_memo_supabase(memo_id, user_id, update)
-    memo["audio_url"] = create_signed_url(memo["audio_path"])
+    memo = sign_memo_for_response(memo)
     return Memo(**memo)
 
 
@@ -424,14 +493,11 @@ def list_memos(
                 continue
             if project_id and memo["project_id"] != project_id:
                 continue
-            memo["audio_url"] = memo.get("audio_url") or memo["audio_path"]
-            results.append(Memo(**memo))
+            results.append(Memo(**sign_memo_for_response(memo)))
         return results
 
     memos = list_memos_supabase(user_id, status, project_id)
-    for memo in memos:
-        memo["audio_url"] = create_signed_url(memo["audio_path"])
-    return [Memo(**memo) for memo in memos]
+    return [Memo(**sign_memo_for_response(memo)) for memo in memos]
 
 
 @app.get(f"{API_PREFIX}/projects", response_model=list[Project])
@@ -441,6 +507,97 @@ def list_projects(user_id: str = Depends(get_current_user_id)) -> list[Project]:
         return [Project(**project) for project in projects if project.get("user_id") == user_id]
     projects = list_projects_supabase(user_id)
     return [Project(**project) for project in projects]
+
+
+@app.post(f"{API_PREFIX}/memos" + "/{memo_id}/media", response_model=Memo)
+async def add_memo_media(
+    memo_id: str,
+    files: list[UploadFile] = File(...),
+    user_id: str = Depends(get_current_user_id),
+) -> Memo:
+    ensure_media_file_limits(files)
+
+    if USE_MOCK:
+        memos = load_memos()
+        memo = next((item for item in memos if item.get("id") == memo_id), None)
+        if not memo or memo.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail="memo not found")
+        attachments = memo.get("attachments") or []
+        for upload in files:
+            file_bytes = await upload.read()
+            validate_media_file(upload, len(file_bytes))
+            ext = infer_extension(upload.filename or "", upload.content_type or "")
+            object_path = f"{user_id}/{memo_id}/{uuid.uuid4().hex}{ext}"
+            attachments.append(
+                {
+                    "type": "image" if (upload.content_type or "").startswith("image/") else "video",
+                    "path": object_path,
+                    "mime": upload.content_type,
+                    "created_at": int(time.time()),
+                }
+            )
+        memo["attachments"] = attachments
+        save_memos(memos)
+        return Memo(**sign_memo_for_response(memo))
+
+    memo = get_memo_supabase(user_id, memo_id)
+    if not memo:
+        raise HTTPException(status_code=404, detail="memo not found")
+
+    attachments = memo.get("attachments") or []
+    for upload in files:
+        file_bytes = await upload.read()
+        validate_media_file(upload, len(file_bytes))
+        ext = infer_extension(upload.filename or "", upload.content_type or "")
+        object_path = f"{user_id}/{memo_id}/{uuid.uuid4().hex}{ext}"
+        upload_to_supabase(
+            MEMOS_ASSETS_BUCKET,
+            object_path,
+            upload.content_type or "application/octet-stream",
+            file_bytes,
+        )
+        attachments.append(
+            {
+                "type": "image" if (upload.content_type or "").startswith("image/") else "video",
+                "path": object_path,
+                "mime": upload.content_type,
+                "created_at": int(time.time()),
+            }
+        )
+
+    updated = update_memo_supabase(memo_id, user_id, {"attachments": attachments})
+    return Memo(**sign_memo_for_response(updated))
+
+
+class LocationPayload(BaseModel):
+    lat: float
+    lng: float
+
+
+@app.post(f"{API_PREFIX}/memos" + "/{memo_id}/location", response_model=Memo)
+def add_memo_location(
+    memo_id: str,
+    payload: LocationPayload,
+    user_id: str = Depends(get_current_user_id),
+) -> Memo:
+    if USE_MOCK:
+        memos = load_memos()
+        memo = next((item for item in memos if item.get("id") == memo_id), None)
+        if not memo or memo.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail="memo not found")
+        attachments = memo.get("attachments") or []
+        attachments.append({"type": "location", "lat": payload.lat, "lng": payload.lng})
+        memo["attachments"] = attachments
+        save_memos(memos)
+        return Memo(**sign_memo_for_response(memo))
+
+    memo = get_memo_supabase(user_id, memo_id)
+    if not memo:
+        raise HTTPException(status_code=404, detail="memo not found")
+    attachments = memo.get("attachments") or []
+    attachments.append({"type": "location", "lat": payload.lat, "lng": payload.lng})
+    updated = update_memo_supabase(memo_id, user_id, {"attachments": attachments})
+    return Memo(**sign_memo_for_response(updated))
 
 
 @app.delete(f"{API_PREFIX}/memos" + "/{memo_id}")
@@ -457,16 +614,13 @@ def delete_memo(
         if not memo or memo.get("user_id") != user_id:
             raise HTTPException(status_code=404, detail="memo not found")
         audio_path = memo.get("audio_path")
-        if audio_path:
-            files_to_delete.append(audio_path)
+        audio_paths = [audio_path] if audio_path else []
         attachments = memo.get("attachments") or []
-        for item in attachments:
-            path = item.get("path") if isinstance(item, dict) else None
-            if path:
-                files_to_delete.append(path)
+        files_to_delete = collect_attachment_paths(attachments)
         memos = [item for item in memos if item.get("id") != memo_id]
         save_memos(memos)
-        background_tasks.add_task(delete_storage_paths, files_to_delete)
+        background_tasks.add_task(delete_storage_paths, SUPABASE_BUCKET, audio_paths)
+        background_tasks.add_task(delete_storage_paths, MEMOS_ASSETS_BUCKET, files_to_delete)
         return Response(status_code=204)
 
     memo = get_memo_supabase(user_id, memo_id)
@@ -474,13 +628,9 @@ def delete_memo(
         raise HTTPException(status_code=404, detail="memo not found")
 
     audio_path = memo.get("audio_path")
-    if audio_path:
-        files_to_delete.append(audio_path)
+    audio_paths = [audio_path] if audio_path else []
     attachments = memo.get("attachments") or []
-    for item in attachments:
-        path = item.get("path") if isinstance(item, dict) else None
-        if path:
-            files_to_delete.append(path)
+    files_to_delete = collect_attachment_paths(attachments)
 
     supabase = get_supabase()
     response = supabase.table("memos").delete().eq("id", memo_id).eq("user_id", user_id).execute()
@@ -489,7 +639,8 @@ def delete_memo(
     if not getattr(response, "data", None):
         raise HTTPException(status_code=404, detail="memo not found")
 
-    background_tasks.add_task(delete_storage_paths, files_to_delete)
+    background_tasks.add_task(delete_storage_paths, SUPABASE_BUCKET, audio_paths)
+    background_tasks.add_task(delete_storage_paths, MEMOS_ASSETS_BUCKET, files_to_delete)
     return Response(status_code=204)
 
 

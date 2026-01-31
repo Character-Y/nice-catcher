@@ -15,7 +15,10 @@ The MVP focuses on a streamlined flow: Record -> Transcribe (High Accuracy) -> R
   - Handles API requests, integration with Transcription Service, and Supabase interactions.
 - **Database**: Supabase (PostgreSQL)
 - **Authentication**: Supabase Auth (Email/Password + OAuth / JWT)
-- **Object Storage**: Supabase Storage (for audio files)
+- **Object Storage**: Supabase Storage
+  - Bucket `memos-audio`: For recording files.
+  - Bucket `memos-assets`: For images/videos.
+  - **Access Pattern**: Frontend NEVER talks to Storage directly. All uploads/reads (Audio & Assets) go through Backend API (Signed URLs).
 - **AI Service**: AI Builder Space API (`/v1/audio/transcriptions`)
   - **Reference**: [OpenAPI Spec](https://space.ai-builders.com/backend/openapi.json) - *Consult this JSON for API implementation details.*
 - **Deployment**: Docker container on AI Builder Space (Single Process: FastAPI serves React)
@@ -104,6 +107,13 @@ Base URL: `/api/v1`
   - `new_project_name`: string (Optional)
   - `status`: "done"
 - **Process**: Ensure `memo_id` belongs to `current_user`.
+- **Note**: `attachments` JSON schema:
+  ```json
+  [
+    { "type": "image", "path": "u1/m1/uuid.jpg", "mime": "image/jpeg", "created_at": 1700000000 },
+    { "type": "location", "lat": 39.9, "lng": 116.4 }
+  ]
+  ```
 - **Response**: Updated Memo object.
 
 **GET** `/memos`
@@ -118,7 +128,7 @@ Base URL: `/api/v1`
 - **Process**: 
   1. Verify ownership (`user_id`).
   2. Delete DB record.
-  3. **Required**: Trigger Background Task (using **FastAPI `BackgroundTasks`**) to clean up storage.
+  3. **Required**: Trigger Background Task (using **FastAPI `BackgroundTasks`**) to clean up storage (Audio & Attachments).
 - **Response**: 204 No Content.
 
 ### 4.3 Static Files & SPA Serving

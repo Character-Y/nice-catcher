@@ -2,6 +2,19 @@ import axios from "axios";
 
 export type MemoStatus = "pending" | "review_needed" | "done";
 
+export type ImageAttachment = {
+  type: "image";
+  url: string;
+};
+
+export type LocationAttachment = {
+  type: "location";
+  lat: number;
+  lng: number;
+};
+
+export type Attachment = ImageAttachment | LocationAttachment;
+
 export type Memo = {
   id: string;
   content?: string | null;
@@ -9,7 +22,7 @@ export type Memo = {
   audio_url?: string | null;
   project_id?: string | null;
   status: MemoStatus;
-  attachments: Record<string, unknown>[];
+  attachments: Attachment[];
   created_at: string;
 };
 
@@ -138,4 +151,20 @@ export async function updateMemo(memoId: string, payload: MemoUpdate) {
 
 export async function deleteMemo(memoId: string) {
   await api.delete(`/memos/${memoId}`);
+}
+
+export async function uploadMemoMedia(memoId: string, files: File[]) {
+  const form = new FormData();
+  files.forEach((file) => {
+    form.append("files", file);
+  });
+  const response = await api.post<Memo>(`/memos/${memoId}/media`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+}
+
+export async function addMemoLocation(memoId: string, payload: { lat: number; lng: number }) {
+  const response = await api.post<Memo>(`/memos/${memoId}/location`, payload);
+  return response.data;
 }
