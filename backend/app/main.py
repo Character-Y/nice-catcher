@@ -149,8 +149,12 @@ def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(status_code=401, detail="Invalid Authorization header")
     token = parts[1]
-    supabase = get_supabase()
-    response = supabase.auth.get_user(token)
+    try:
+        supabase = get_supabase()
+        response = supabase.auth.get_user(token)
+    except Exception as exc:
+        logger.warning("Auth get_user failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
     user = getattr(response, "user", None) or getattr(response, "data", None) or response
     if isinstance(user, dict):
         user_id = user.get("id")
@@ -204,7 +208,11 @@ def sign_memo_for_response(memo: dict[str, Any]) -> dict[str, Any]:
     memo_dict = dict(memo)
     audio_path = memo_dict.get("audio_path")
     if audio_path:
-        memo_dict["audio_url"] = create_signed_url(SUPABASE_BUCKET, audio_path)
+        try:
+            memo_dict["audio_url"] = create_signed_url(SUPABASE_BUCKET, audio_path)
+        except Exception as exc:
+            logger.warning("Failed to sign audio_url for memo %s: %s", memo_dict.get("id"), exc)
+            memo_dict["audio_url"] = None
     attachments = memo_dict.get("attachments") or []
     signed_attachments: list[dict[str, Any]] = []
     for item in attachments:
@@ -212,7 +220,11 @@ def sign_memo_for_response(memo: dict[str, Any]) -> dict[str, Any]:
             continue
         entry = dict(item)
         if entry.get("type") in {"image", "video"} and entry.get("path"):
-            entry["url"] = create_signed_url(MEMOS_ASSETS_BUCKET, entry["path"])
+            try:
+                entry["url"] = create_signed_url(MEMOS_ASSETS_BUCKET, entry["path"])
+            except Exception as exc:
+                logger.warning("Failed to sign attachment path %s: %s", entry.get("path"), exc)
+                entry["url"] = ""
             entry.pop("path", None)
         signed_attachments.append(entry)
     memo_dict["attachments"] = signed_attachments
