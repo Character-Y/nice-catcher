@@ -26,11 +26,12 @@ To ensure proper cleanup, `attachments` JSONB items MUST follow this structure:
 
 ### Step 3: Resource Cleanup (Background Task)
 - **Mechanism**: Use FastAPI `BackgroundTasks`.
+- **Client**: Use Supabase Client with **Service Role Key**.
 - **Input**: Pass the `files_to_delete` list captured in Step 1.
 - **Logic**: 
-  - Iterate through list.
-  - Filter: Only process items that have a `path`. Ignore `location` items.
-  - **Path Format**: `path` should NOT include bucket name. Call `storage.from('bucket').remove(['path'])`.
+  - **Audio**: Remove `audio_path` from `memos-audio` bucket.
+  - **Attachments**: For items with `path`:
+    - Remove from `memos-assets` bucket.
 - **Reliability**: This is "Best Effort". If the server restarts immediately, orphaned files may remain. This is acceptable for MVP.
 - **Log Level**: Use `WARNING` for cleanup failures, not `ERROR`.
 

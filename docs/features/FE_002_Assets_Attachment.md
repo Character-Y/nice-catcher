@@ -11,9 +11,10 @@ Add a generic **"Add Attachment"** section or toolbar.
 -   **Trigger**: Button click programmatically opens the file dialog.
 -   **Flow**:
     1.  User selects files.
-    2.  **UI State**: Show "Uploading..." spinner.
+    2.  **UI State**: Show "Uploading..." spinner. *(Future UX: Show progress per file)*
     3.  **API**: Call `POST /memos/{id}/media` with FormData.
-    4.  **On Success**: Refresh memo data. The new images should appear in the list (using the `url` returned by backend).
+    4.  **On Success**: Call `fetchMemos()` to refresh the entire list (ensures consistency), then update local view.
+    5.  **On Partial/Full Failure**: Show Error Toast. Do NOT rollback. Refresh list.
 
 ### Button B: "Add Location"
 -   **Element**: Button "Tag Location".
@@ -24,7 +25,7 @@ Add a generic **"Add Attachment"** section or toolbar.
     4.  **Error Handling**:
         -   If denied/error: Show Toast "Could not get location".
     5.  **Success**: Call `POST /memos/{id}/location` with `{lat, lng}`.
-    6.  **UI Update**: Show a "Map Pin" icon with coordinates (or "Current Location") in the attachment list.
+    6.  **UI Update**: Show a "Map Pin" icon with coordinates (e.g., `Location: 12.34, 56.78`) or "Current Location".
 
 ## 2. Display Layer (Timeline Card)
 -   **Images**: Render as a grid or carousel. Use the `url` field (which is the Signed URL).
